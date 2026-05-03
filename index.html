@@ -219,6 +219,32 @@ canvas.bc{display:block;width:100%;height:auto}
   .kpi-row{grid-template-columns:1fr}
   .art-grid{grid-template-columns:1fr}
 }
+
+/* ── BOTTOM NAV (mobile only) ── */
+.bottom-nav{display:none}
+@media(max-width:660px){
+  .bottom-nav{
+    display:flex;position:fixed;bottom:0;left:0;right:0;z-index:90;
+    background:#fff;border-top:1.5px solid var(--border);
+    padding:0;padding-bottom:env(safe-area-inset-bottom,0px);
+    box-shadow:0 -2px 12px rgba(0,0,0,.1)
+  }
+  .bn-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    padding:8px 4px;background:none;border:none;cursor:pointer;font-family:inherit;
+    color:var(--txt2);font-size:10px;font-weight:600;gap:3px;min-height:54px;
+    position:relative;transition:.12s}
+  .bn-item:active{background:var(--bg)}
+  .bn-item.on{color:var(--blue)}
+  .bn-icon{font-size:20px;line-height:1}
+  .bn-dot{position:absolute;top:6px;right:calc(50% - 14px);width:7px;height:7px;
+    background:var(--red);border-radius:50%;border:1.5px solid #fff}
+  .page{padding-bottom:80px}
+  .topbar{padding:0 12px;height:50px}
+  .topbar-title{font-size:15px}
+  .hamburger{display:none !important}
+  .sidebar{display:none}
+  .main{margin-left:0}
+}
 </style>
 </head>
 <body>
@@ -2057,6 +2083,53 @@ function Configuracion(){
 /* ═══════════════════════════
    APP ROOT
 ═══════════════════════════ */
+/* ═══════════════════════════
+   BOTTOM NAV (mobile)
+═══════════════════════════ */
+function BottomNav(props){
+  var user=props.user;
+  var mod=props.mod;
+  var setMod=props.setMod;
+  var isPrev=user.role==='preventista';
+  var isPrep=user.role==='preparador';
+  var isAdminOrCo=user.role==='admin'||user.role==='coadmin';
+  var pedidos=gl('pedidos',[]);
+  var pendCount=pedidos.filter(function(p){return p.estado==='pendiente';}).length;
+  var readyCount=pedidos.filter(function(p){return p.estado==='preparado'&&p.preventistaId===user.id;}).length;
+
+  function item(id,icon,label,badge){
+    return E('button',{key:id,className:'bn-item'+(mod===id?' on':''),onClick:function(){setMod(id);}},
+      badge>0&&E('span',{className:'bn-dot'}),
+      E('span',{className:'bn-icon'},icon),
+      E('span',null,label)
+    );
+  }
+
+  if(isPrev) return E('div',{className:'bottom-nav'},
+    item('dashboard','📊','Inicio'),
+    item('nuevo-pedido','🛒','Pedido'),
+    item('mis-pedidos','📦','Mis Pedidos',readyCount),
+    item('clientes','👥','Clientes'),
+    item('mapa-gps','🗺️','GPS')
+  );
+
+  if(isPrep) return E('div',{className:'bottom-nav'},
+    item('dashboard','📊','Inicio'),
+    item('cola-prep','⚙️','Preparar',pendCount),
+    item('articulos','📦','Artículos')
+  );
+
+  if(isAdminOrCo) return E('div',{className:'bottom-nav'},
+    item('dashboard','📊','Inicio'),
+    item('nuevo-pedido','🛒','Pedido'),
+    item('todos-pedidos','📋','Pedidos'),
+    item('clientes','👥','Clientes'),
+    item('estadisticas','📈','Stats')
+  );
+
+  return null;
+}
+
 var MOD_TITLES={
   'dashboard':'Dashboard','nuevo-pedido':'Nuevo Pedido','mis-pedidos':'Mis Pedidos',
   'mapa-gps':'Mi Recorrido GPS','cola-prep':'Cola de Preparación',
@@ -2105,15 +2178,26 @@ function App(){
       onLogout:function(){setUser(null);setMod('dashboard');setSbOpen(false);}}),
     E('div',{className:'main'},
       E('div',{className:'topbar'},
-        E('div',{style:{display:'flex',alignItems:'center',gap:10}},
+        E('div',{style:{display:'flex',alignItems:'center',gap:8}},
           E('button',{className:'hamburger',onClick:function(){setSbOpen(!sbOpen);}},'☰'),
           E('div',{className:'topbar-title'},MOD_TITLES[mod]||mod)
         ),
         E('div',{className:'topbar-right'},
-          E('div',{style:{fontSize:12,color:'var(--txt2)',display:'none'===''?'block':'none'}},new Date().toLocaleString('es-AR'))
+          E('button',{
+            onClick:function(){setSbOpen(!sbOpen);},
+            style:{background:'none',border:'none',cursor:'pointer',fontSize:13,
+              color:'var(--blue)',fontWeight:700,padding:'6px 10px',
+              display:'flex',alignItems:'center',gap:4}
+          },'⚙️ Más'),
+          E('button',{
+            onClick:function(){setUser(null);setMod('dashboard');setSbOpen(false);},
+            style:{background:'none',border:'none',cursor:'pointer',fontSize:13,
+              color:'var(--txt2)',padding:'6px 8px'}
+          },'Salir')
         )
       ),
-      E('div',{className:'page'},renderMod())
+      E('div',{className:'page'},renderMod()),
+      E(BottomNav,{user:user,mod:mod,setMod:goMod})
     )
   );
 }
