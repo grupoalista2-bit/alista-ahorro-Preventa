@@ -1,15 +1,15 @@
 <!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
+<!-- saved from url=(0058)file:///C:/Users/alejn/Downloads/alista_ahorro_b2b_18.html -->
+<html lang="es"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ALISTA AHORRO – Sistema de Pedidos B2B</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<script crossorigin="anonymous" src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script crossorigin="anonymous" src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script crossorigin="anonymous" src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.min.js"></script>
+<link rel="stylesheet" href="./ALISTA AHORRO – Sistema de Pedidos B2B_files/leaflet.css">
+<script crossorigin="anonymous" src="./ALISTA AHORRO – Sistema de Pedidos B2B_files/react.production.min.js.descarga"></script>
+<script crossorigin="anonymous" src="./ALISTA AHORRO – Sistema de Pedidos B2B_files/react-dom.production.min.js.descarga"></script>
+<script crossorigin="anonymous" src="./ALISTA AHORRO – Sistema de Pedidos B2B_files/leaflet.js.descarga"></script>
+<script crossorigin="anonymous" src="./ALISTA AHORRO – Sistema de Pedidos B2B_files/jspdf.umd.min.js.descarga"></script>
+<script crossorigin="anonymous" src="./ALISTA AHORRO – Sistema de Pedidos B2B_files/xlsx.min.js.descarga"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 :root{
@@ -219,36 +219,10 @@ canvas.bc{display:block;width:100%;height:auto}
   .kpi-row{grid-template-columns:1fr}
   .art-grid{grid-template-columns:1fr}
 }
-
-/* ── BOTTOM NAV (mobile only) ── */
-.bottom-nav{display:none}
-@media(max-width:660px){
-  .bottom-nav{
-    display:flex;position:fixed;bottom:0;left:0;right:0;z-index:90;
-    background:#fff;border-top:1.5px solid var(--border);
-    padding:0;padding-bottom:env(safe-area-inset-bottom,0px);
-    box-shadow:0 -2px 12px rgba(0,0,0,.1)
-  }
-  .bn-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    padding:8px 4px;background:none;border:none;cursor:pointer;font-family:inherit;
-    color:var(--txt2);font-size:10px;font-weight:600;gap:3px;min-height:54px;
-    position:relative;transition:.12s}
-  .bn-item:active{background:var(--bg)}
-  .bn-item.on{color:var(--blue)}
-  .bn-icon{font-size:20px;line-height:1}
-  .bn-dot{position:absolute;top:6px;right:calc(50% - 14px);width:7px;height:7px;
-    background:var(--red);border-radius:50%;border:1.5px solid #fff}
-  .page{padding-bottom:80px}
-  .topbar{padding:0 12px;height:50px}
-  .topbar-title{font-size:15px}
-  .hamburger{display:none !important}
-  .sidebar{display:none}
-  .main{margin-left:0}
-}
 </style>
 </head>
 <body>
-<div id="root"></div>
+<div id="root"><div class="login-bg"><div class="login-box"><div class="login-brand"><div class="login-brand-name"><em>ALISTA </em>AHORRO</div><div class="login-brand-sub">Sistema de Pedidos B2B</div></div><form><div class="lfield"><label>Usuario</label><input placeholder="Nombre de usuario" value=""></div><div class="lfield"><label>Contraseña</label><input type="password" placeholder="Contraseña" value=""></div><button class="login-btn" type="submit">Ingresar</button></form><div style="margin-top: 20px; text-align: center; font-size: 11px; color: var(--txt2);">Los Juríes, Santiago del Estero</div></div></div></div>
 <script>
 'use strict';
 var R=React;
@@ -290,94 +264,7 @@ var DEMO_USERS=[
 ];
 
 /* ═══════════════════════════
-   SUPABASE CONFIG
-═══════════════════════════ */
-var SB_URL='https://uteibukgbhsqrgkbhsxu.supabase.co';
-var SB_KEY='sb_publishable_sJW1HnfuLap8tRTY1i9C-w__XsoYORx';
-
-function sbFetch(path,opts){
-  var url=SB_URL+'/rest/v1/'+path;
-  var headers=Object.assign({
-    'apikey':SB_KEY,
-    'Authorization':'Bearer '+SB_KEY,
-    'Content-Type':'application/json',
-    'Prefer':'return=representation'
-  },opts&&opts.headers||{});
-  return fetch(url,Object.assign({},opts,{headers:headers}));
-}
-
-// GET all rows from a table
-function dbGet(table){
-  return sbFetch(table+'?select=*').then(function(r){return r.json();}).catch(function(){return [];});
-}
-
-// GET single row by id
-function dbGetOne(table,id){
-  return sbFetch(table+'?id=eq.'+encodeURIComponent(id)+'&select=*')
-    .then(function(r){return r.json();}).then(function(rows){return rows[0]||null;}).catch(function(){return null;});
-}
-
-// UPSERT (insert or update)
-function dbUpsert(table,row){
-  return sbFetch(table,{
-    method:'POST',
-    headers:{'Prefer':'resolution=merge-duplicates,return=representation'},
-    body:JSON.stringify(row)
-  }).then(function(r){return r.json();}).catch(function(e){console.error('dbUpsert',e);return null;});
-}
-
-// DELETE by id
-function dbDelete(table,id){
-  return sbFetch(table+'?id=eq.'+encodeURIComponent(id),{method:'DELETE'}).catch(function(e){console.error('dbDelete',e);});
-}
-
-// UPDATE single field
-function dbUpdate(table,id,data){
-  return sbFetch(table+'?id=eq.'+encodeURIComponent(id),{
-    method:'PATCH',
-    body:JSON.stringify(data)
-  }).then(function(r){return r.json();}).catch(function(e){console.error('dbUpdate',e);return null;});
-}
-
-// Map app article object → DB row
-function artToDb(a){return {id:a.id,cod:a.cod,cod_art:a.codArt||'',descripcion:a.desc,precio:a.precio||0,costo:a.costo||0,estado:a.estado||'activo'};}
-function dbToArt(r){return {id:r.id,cod:r.cod,codArt:r.cod_art||'',desc:r.descripcion,precio:parseFloat(r.precio)||0,costo:parseFloat(r.costo)||0,estado:r.estado};}
-
-// Map app client object → DB row
-function cliToDb(c){return {id:c.id,nombre:c.nombre,apellido:c.apellido,dir:c.dir||'',tel:c.tel||'',tipo_cc:c.tipoCC||'Sin Tope',lim_cc:c.limCC||0,deuda:c.deuda||0,estado:c.estado||'activo',lat:c.lat||null,lng:c.lng||null};}
-function dbToCli(r){return {id:r.id,nombre:r.nombre,apellido:r.apellido,dir:r.dir,tel:r.tel,tipoCC:r.tipo_cc,limCC:parseFloat(r.lim_cc)||0,deuda:parseFloat(r.deuda)||0,estado:r.estado,lat:r.lat,lng:r.lng};}
-
-// Map app user → DB row
-function userToDb(u){return {id:u.id,username:u.username,password:u.password,nombre:u.nombre,role:u.role,activo:u.activo!==false};}
-function dbToUser(r){return {id:r.id,username:r.username,password:r.password,nombre:r.nombre,role:r.role,activo:r.activo};}
-
-// Map pedido → DB row (store complex fields as jsonb)
-function pedToDb(p){return {
-  id:p.id,n_pedido:p.nPedido,fecha:p.fecha,estado:p.estado,
-  preventista_id:p.preventistaId,preventista_nombre:p.preventistaNombre,
-  preparador_id:p.preparadorId||null,preparador_nombre:p.preparadorNombre||null,
-  cliente:p.cliente,items:p.items,items_finales:p.itemsFinales||null,
-  sub:p.sub||0,desc_pct:p.descPct||0,desc_amt:p.descAmt||0,total:p.total||0,
-  nota:p.nota||null,nota_prep:p.notaPrep||null,
-  forma_pago:p.formaPago||null,monto_pago:p.montoPago||0,
-  datos_pago:p.datosPago||null,nota_cliente:p.notaCliente||null,
-  fecha_preparado:p.fechaPreparado||null,fecha_retiro:p.fechaRetiro||null,
-  fecha_entregado:p.fechaEntregado||null,gps_creacion:p.gpsCreacion||null
-};}
-function dbToPed(r){return {
-  id:r.id,nPedido:r.n_pedido,fecha:r.fecha,estado:r.estado,
-  preventistaId:r.preventista_id,preventistaNombre:r.preventista_nombre,
-  preparadorId:r.preparador_id,preparadorNombre:r.preparador_nombre,
-  cliente:r.cliente,items:r.items,itemsFinales:r.items_finales,
-  sub:parseFloat(r.sub)||0,descPct:parseFloat(r.desc_pct)||0,descAmt:parseFloat(r.desc_amt)||0,total:parseFloat(r.total)||0,
-  nota:r.nota,notaPrep:r.nota_prep,formaPago:r.forma_pago,montoPago:parseFloat(r.monto_pago)||0,
-  datosPago:r.datos_pago,notaCliente:r.nota_cliente,
-  fechaPreparado:r.fecha_preparado,fechaRetiro:r.fecha_retiro,fechaEntregado:r.fecha_entregado,
-  gpsCreacion:r.gps_creacion
-};}
-
-/* ═══════════════════════════
-   STORAGE (localStorage fallback)
+   STORAGE
 ═══════════════════════════ */
 function gl(k,d){try{var v=localStorage.getItem(k);return v!==null?JSON.parse(v):d;}catch(e){return d;}}
 function sl(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
@@ -387,31 +274,14 @@ function getAdmin(){
   return Object.assign({},ADMIN_DEF,p,{id:'root',role:'admin',activo:true});
 }
 
-/* ═══════════════════════════
-   BOOT — seed cloud DB once
-═══════════════════════════ */
 function boot(){
-  // Local fallbacks still used for GPS, config, comisiones
+  if(!gl('arts',null))sl('arts',DEMO_ARTS);
+  if(!gl('clis',null))sl('clis',DEMO_CLIS);
+  if(!gl('pedidos',null))sl('pedidos',[]);
+  if(!gl('users',null))sl('users',DEMO_USERS);
   if(!gl('nextPedido',null))sl('nextPedido',100);
   if(!gl('cfg',null))sl('cfg',{descGlobal:5,descXUser:{}});
   if(!gl('comisiones',null))sl('comisiones',{});
-
-  // Seed DB with demo data only if empty
-  dbGet('usuarios').then(function(rows){
-    if(rows&&rows.length===0){
-      DEMO_USERS.forEach(function(u){dbUpsert('usuarios',userToDb(u));});
-    }
-  });
-  dbGet('articulos').then(function(rows){
-    if(rows&&rows.length===0){
-      DEMO_ARTS.forEach(function(a){dbUpsert('articulos',artToDb(a));});
-    }
-  });
-  dbGet('clientes').then(function(rows){
-    if(rows&&rows.length===0){
-      DEMO_CLIS.forEach(function(c){dbUpsert('clientes',cliToDb(c));});
-    }
-  });
 }
 
 /* ═══════════════════════════
@@ -708,36 +578,15 @@ function Login(props){
   var _a=useState(''),u=_a[0],setU=_a[1];
   var _b=useState(''),p=_b[0],setP=_b[1];
   var _c=useState(''),err=_c[0],setErr=_c[1];
-  var _d=useState(false),loading=_d[0],setLoading=_d[1];
-
   function submit(e){
     e.preventDefault();
     var un=u.trim().toUpperCase();
-    setLoading(true);setErr('');
-
-    // Check admin first (local)
     var adm=getAdmin();
-    if(un===adm.username.toUpperCase()&&p===adm.password){
-      setLoading(false);props.onLogin(adm);return;
-    }
-
-    // Check Supabase users
-    sbFetch('usuarios?username=eq.'+encodeURIComponent(u.trim())+'&select=*')
-      .then(function(r){return r.json();})
-      .then(function(rows){
-        setLoading(false);
-        if(!rows||rows.length===0){setErr('Usuario o contraseña incorrectos.');return;}
-        var found=rows[0];
-        if(!found.activo){setErr('Tu cuenta está desactivada.');return;}
-        if(found.password!==p){setErr('Usuario o contraseña incorrectos.');return;}
-        props.onLogin(dbToUser(found));
-      })
-      .catch(function(){
-        setLoading(false);
-        setErr('Sin conexión. Verificá tu internet.');
-      });
+    if(un===adm.username.toUpperCase()&&p===adm.password){props.onLogin(adm);return;}
+    var found=gl('users',[]).find(function(x){return x.username.toUpperCase()===un&&x.password===p&&x.activo;});
+    if(found){props.onLogin(found);return;}
+    setErr('Usuario o contraseña incorrectos.');
   }
-
   return E('div',{className:'login-bg'},
     E('div',{className:'login-box'},
       E('div',{className:'login-brand'},
@@ -747,10 +596,10 @@ function Login(props){
       err&&E(Alert,{t:'err',msg:err,onClose:function(){setErr('');}}),
       E('form',{onSubmit:submit},
         E('div',{className:'lfield'},E('label',null,'Usuario'),
-          E('input',{value:u,onChange:function(e){setU(e.target.value);},placeholder:'Nombre de usuario',autoFocus:true,disabled:loading})),
+          E('input',{value:u,onChange:function(e){setU(e.target.value);},placeholder:'Nombre de usuario',autoFocus:true})),
         E('div',{className:'lfield'},E('label',null,'Contraseña'),
-          E('input',{type:'password',value:p,onChange:function(e){setP(e.target.value);},placeholder:'Contraseña',disabled:loading})),
-        E('button',{className:'login-btn',type:'submit',disabled:loading},loading?'Verificando…':'Ingresar')
+          E('input',{type:'password',value:p,onChange:function(e){setP(e.target.value);},placeholder:'Contraseña'})),
+        E('button',{className:'login-btn',type:'submit'},'Ingresar')
       ),
       E('div',{style:{marginTop:20,textAlign:'center',fontSize:11,color:'var(--txt2)'}},BIZ.dir)
     )
@@ -817,14 +666,13 @@ function Sidebar(props){
 ═══════════════════════════ */
 function Dashboard(props){
   var user=props.user;
-  var _a=useState([]),pedidos=_a[0],setPedidos=_a[1];
+  var _a=useState(gl('pedidos',[])),pedidos=_a[0],setPedidos=_a[1];
   var isAdminOrCo=user.role==='admin'||user.role==='coadmin';
   var isPrev=user.role==='preventista';
   var isPrep=user.role==='preparador';
 
   useEffect(function(){
-    dbGet('pedidos').then(function(rows){if(rows)setPedidos(rows.map(dbToPed));});
-    var iv=setInterval(function(){dbGet('pedidos').then(function(rows){if(rows)setPedidos(rows.map(dbToPed));});},10000);
+    var iv=setInterval(function(){setPedidos(gl('pedidos',[]));},5000);
     return function(){clearInterval(iv);};
   },[]);
 
@@ -884,8 +732,8 @@ function Dashboard(props){
 ═══════════════════════════ */
 function NuevoPedido(props){
   var user=props.user;
-  var _a0=useState([]),arts=_a0[0],setArts=_a0[1];
-  var _a=useState([]),clis=_a[0],setClis=_a[1];
+  var arts=gl('arts',[]).filter(function(a){return a.estado==='activo';});
+  var _a=useState(gl('clis',[])),clis=_a[0];
   var _b=useState(null),cli=_b[0],setCli=_b[1];
   var _c=useState([]),items=_c[0],setItems=_c[1];
   var _d=useState(0),desc=_d[0],setDesc=_d[1];
@@ -894,11 +742,6 @@ function NuevoPedido(props){
   var _g=useState(''),qArt=_g[0],setQArt=_g[1];
   var _h=useState(false),showCli=_h[0],setShowCli=_h[1];
   var _i=useState(null),msg=_i[0],setMsg=_i[1];
-
-  useEffect(function(){
-    dbGet('articulos').then(function(rows){if(rows)setArts(rows.map(dbToArt).filter(function(a){return a.estado==='activo';}));});
-    dbGet('clientes').then(function(rows){if(rows)setClis(rows.map(dbToCli).filter(function(c){return c.estado==='activo';}));});
-  },[]);
 
   var maxDesc=getMaxDesc(user.id);
   var sub=items.reduce(function(s,i){return s+(i.cant*i.pu);},0);
@@ -918,24 +761,21 @@ function NuevoPedido(props){
   function handleEnviar(){
     if(!cli){flash('err','Seleccioná un cliente.');return;}
     if(items.length===0){flash('err','Agregá al menos un artículo.');return;}
-    // Get next pedido number from DB
-    dbGet('pedidos').then(function(rows){
-      var maxN=rows&&rows.length?Math.max.apply(null,rows.map(function(r){return r.n_pedido||0;})):100;
-      var n=maxN+1;
-      var ped={
-        id:uid(),nPedido:n,fecha:nowStr(),
-        estado:'pendiente',
-        preventistaId:user.id,preventistaNombre:user.nombre||user.username,
-        cliente:cli,items:items,
-        sub:sub,descPct:desc,descAmt:descAmt,total:total,
-        nota:nota,
-        gpsCreacion:gl('gps_last_'+user.id,null)
-      };
-      dbUpsert('pedidos',pedToDb(ped)).then(function(){
-        flash('ok','✓ Pedido #'+n+' enviado a preparación.');
-        setCli(null);setItems([]);setDesc(0);setNota('');setQCli('');
-      });
-    });
+    var n=gl('nextPedido',100)+1;
+    sl('nextPedido',n);
+    var ped={
+      id:uid(),nPedido:n,fecha:nowStr(),
+      estado:'pendiente',
+      preventistaId:user.id,preventistaNombre:user.nombre||user.username,
+      cliente:cli,items:items,
+      sub:sub,descPct:desc,descAmt:descAmt,total:total,
+      nota:nota,
+      gpsCreacion:gl('gps_last_'+user.id,null)
+    };
+    var peds=gl('pedidos',[]);
+    sl('pedidos',peds.concat([ped]));
+    flash('ok','✓ Pedido #'+n+' enviado a preparación.');
+    setCli(null);setItems([]);setDesc(0);setNota('');setQCli('');
   }
 
   var filtClis=clis.filter(function(c){
@@ -1033,24 +873,25 @@ function NuevoPedido(props){
 ═══════════════════════════ */
 function MisPedidos(props){
   var user=props.user;
-  var _a=useState([]),pedidos=_a[0],setPedidos=_a[1];
+  var _a=useState(gl('pedidos',[])),pedidos=_a[0],setPedidos=_a[1];
   var _b=useState(null),detalle=_b[0],setDetalle=_b[1];
   var _c=useState(null),entregaModal=_c[0],setEntregaModal=_c[1];
   var _d=useState({formaPago:'efectivo',montoPago:'',datosPago:'',notaCliente:''}),entregaForm=_d[0],setEntregaForm=_d[1];
   var _e=useState(null),msg=_e[0],setMsg=_e[1];
 
-  function reloadPeds(){dbGet('pedidos').then(function(rows){if(rows)setPedidos(rows.map(dbToPed));});}
-  useEffect(function(){reloadPeds();var iv=setInterval(reloadPeds,8000);return function(){clearInterval(iv);};},[]);
+  useEffect(function(){
+    var iv=setInterval(function(){setPedidos(gl('pedidos',[]));},5000);
+    return function(){clearInterval(iv);};
+  },[]);
 
   function flash(t,m){setMsg({t:t,m:m});setTimeout(function(){setMsg(null);},4000);}
 
   var mine=pedidos.filter(function(p){return p.preventistaId===user.id;}).sort(function(a,b){return b.nPedido-a.nPedido;});
 
-  function savePeds(peds){setPedidos(peds);}
-  function savePed(ped){dbUpsert('pedidos',pedToDb(ped)).then(reloadPeds);}
+  function savePeds(peds){setPedidos(peds);sl('pedidos',peds);}
 
   function retirar(ped){
-    dbUpsert('pedidos',pedToDb(Object.assign({},ped,{estado:'en_transito',fechaRetiro:nowStr()}))).then(reloadPeds);
+    savePeds(pedidos.map(function(p){return p.id===ped.id?Object.assign({},p,{estado:'en_transito',fechaRetiro:nowStr()}):p;}));
     flash('ok','Pedido #'+ped.nPedido+' retirado. Estado: En Tránsito.');
   }
 
@@ -1062,22 +903,25 @@ function MisPedidos(props){
   function confirmarEntrega(){
     var ped=entregaModal;
     var form=entregaForm;
+    // Check CC limit
+    if(form.formaPago==='cuenta_corriente'){
+      var clis=gl('clis',[]);
+      var c=clis.find(function(c){return c.id===ped.cliente.id;});
+      if(c&&c.tipoCC==='Con Tope'&&(c.deuda+ped.total)>c.limCC){
+        flash('err','⚠️ Supera el límite de CC. Límite: $'+$(c.limCC)+' · Deuda actual: $'+$(c.deuda));return;
+      }
+      // Update client debt
+      var newClis=clis.map(function(c){
+        return c.id===ped.cliente.id?Object.assign({},c,{deuda:c.deuda+ped.total}):c;
+      });
+      sl('clis',newClis);
+    }
     var updPed=Object.assign({},ped,{
       estado:'finalizado',fechaEntregado:nowStr(),
       formaPago:form.formaPago,montoPago:parseFloat(form.montoPago)||0,
       datosPago:form.datosPago,notaCliente:form.notaCliente
     });
-    if(form.formaPago==='cuenta_corriente'){
-      // Update client debt in Supabase
-      dbGetOne('clientes',ped.cliente.id).then(function(c){
-        if(!c)return;
-        if(c.tipo_cc==='Con Tope'&&(parseFloat(c.deuda)+ped.total)>parseFloat(c.lim_cc)){
-          flash('err','⚠️ Supera el límite de CC.');return;
-        }
-        dbUpdate('clientes',c.id,{deuda:parseFloat(c.deuda)+ped.total});
-      });
-    }
-    dbUpsert('pedidos',pedToDb(updPed)).then(reloadPeds);
+    savePeds(pedidos.map(function(p){return p.id===ped.id?updPed:p;}));
     makePDF(updPed);
     setEntregaModal(null);
     flash('ok','Pedido #'+ped.nPedido+' finalizado. PDF descargado.');
@@ -1330,17 +1174,19 @@ function MapaAdmin(){
 ═══════════════════════════ */
 function ColaPreparacion(props){
   var user=props.user;
-  var _a=useState([]),pedidos=_a[0],setPedidos=_a[1];
+  var _a=useState(gl('pedidos',[])),pedidos=_a[0],setPedidos=_a[1];
   var _b=useState(null),prepModal=_b[0],setPrepModal=_b[1];
   var _c=useState([]),prepItems=_c[0],setPrepItems=_c[1];
   var _d=useState(''),notaPrep=_d[0],setNotaPrep=_d[1];
   var _e=useState(null),msg=_e[0],setMsg=_e[1];
 
-  function reloadPeds(){dbGet('pedidos').then(function(rows){if(rows)setPedidos(rows.map(dbToPed));});}
-  useEffect(function(){reloadPeds();var iv=setInterval(reloadPeds,6000);return function(){clearInterval(iv);};},[]);
+  useEffect(function(){
+    var iv=setInterval(function(){setPedidos(gl('pedidos',[]));},4000);
+    return function(){clearInterval(iv);};
+  },[]);
 
   function flash(t,m){setMsg({t:t,m:m});setTimeout(function(){setMsg(null);},4000);}
-  function savePeds(peds){setPedidos(peds);}
+  function savePeds(peds){setPedidos(peds);sl('pedidos',peds);}
 
   var pendientes=pedidos.filter(function(p){return p.estado==='pendiente';}).sort(function(a,b){return a.nPedido-b.nPedido;});
   var preparados=pedidos.filter(function(p){return p.estado==='preparado'&&p.preparadorId===user.id;}).sort(function(a,b){return b.nPedido-a.nPedido;});
@@ -1377,7 +1223,9 @@ function ColaPreparacion(props){
       notaPrep:notaPrep,
       sub:newSub,descAmt:newDescAmt,total:newTotal
     });
-    dbUpsert('pedidos',pedToDb(updPed)).then(function(){reloadPeds();setPrepModal(null);flash('ok','Pedido #'+ped.nPedido+' preparado. Preventista notificado.');});
+    savePeds(pedidos.map(function(p){return p.id===ped.id?updPed:p;}));
+    setPrepModal(null);
+    flash('ok','Pedido #'+ped.nPedido+' preparado. Preventista notificado.');
   }
 
   return E('div',null,
@@ -1476,14 +1324,16 @@ function ColaPreparacion(props){
    TODOS LOS PEDIDOS (Admin)
 ═══════════════════════════ */
 function TodosPedidos(){
-  var _a=useState([]),pedidos=_a[0],setPedidos=_a[1];
+  var _a=useState(gl('pedidos',[])),pedidos=_a[0],setPedidos=_a[1];
   var _b=useState(''),q=_b[0],setQ=_b[1];
   var _c=useState(''),filtEstado=_c[0],setFiltEstado=_c[1];
   var _d=useState(''),filtPrev=_d[0],setFiltPrev=_d[1];
   var _e=useState(null),detalle=_e[0],setDetalle=_e[1];
 
-  function reloadPeds(){dbGet('pedidos').then(function(rows){if(rows)setPedidos(rows.map(dbToPed));});}
-  useEffect(function(){reloadPeds();var iv=setInterval(reloadPeds,8000);return function(){clearInterval(iv);};},[]);
+  useEffect(function(){
+    var iv=setInterval(function(){setPedidos(gl('pedidos',[]));},5000);
+    return function(){clearInterval(iv);};
+  },[]);
 
   var users=gl('users',[]).filter(function(u){return u.role==='preventista';});
 
@@ -1643,15 +1493,12 @@ function Articulos(props){
           else cur.push({id:uid(),cod:cod,codArt:codArt,desc:desc,precio:precio,costo:costo,estado:estado});
           n++;
         });
-        cur.forEach(function(a){dbUpsert('articulos',artToDb(a));});
-        setTimeout(function(){reload();flash('ok',n+' artículos importados/actualizados.');},1000);
+        save(cur);flash('ok',n+' artículos importados/actualizados.');
       }catch(err){flash('err','Error al leer el archivo: '+err.message);}
     };
     reader.onerror=function(){flash('err','No se pudo leer el archivo.');};
     reader.readAsArrayBuffer(file);
   }
-
-  var filtered=arts.filter(function(a){return a.cod.toLowerCase().includes(q.toLowerCase())||a.desc.toLowerCase().includes(q.toLowerCase());});
 
   return E('div',null,
     E('div',{className:'card'},
@@ -1728,7 +1575,7 @@ function Articulos(props){
 function Clientes(props){
   var user=props.user;
   var canFullEdit=user.role==='admin'||user.role==='coadmin';
-  var _a=useState([]),clis=_a[0],setClis=_a[1];
+  var _a=useState(gl('clis',[])),clis=_a[0],setClis=_a[1];
   var _b=useState(''),q=_b[0],setQ=_b[1];
   var _c=useState(null),modal=_c[0],setModal=_c[1];
   var _d=useState({nombre:'',apellido:'',dir:'',tel:'',tipoCC:'Sin Tope',limCC:0,deuda:0,estado:'activo',lat:'',lng:''}),form=_d[0],setForm=_d[1];
@@ -1736,9 +1583,7 @@ function Clientes(props){
   var _f=useState({tipo:'pago',monto:0}),ajuste=_f[0],setAjuste=_f[1];
   var _g=useState(null),msg=_g[0],setMsg=_g[1];
 
-  function reload(){dbGet('clientes').then(function(rows){if(rows)setClis(rows.map(dbToCli));});}
-  useEffect(function(){reload();},[]);
-
+  function save(c){setClis(c);sl('clis',c);}
   function F(k,v){setForm(function(f){return Object.assign({},f,{[k]:v});});}
   function flash(t,m){setMsg({t:t,m:m});setTimeout(function(){setMsg(null);},3000);}
 
@@ -1746,17 +1591,17 @@ function Clientes(props){
 
   function handleSave(){
     if(!form.nombre.trim()||!form.apellido.trim()||!form.dir.trim()||!form.tel.trim()){flash('err','Nombre, apellido, domicilio y teléfono son obligatorios.');return;}
-    var c=Object.assign({},form,{id:form.id||uid(),limCC:parseFloat(form.limCC)||0,deuda:parseFloat(form.deuda)||0,lat:parseFloat(form.lat)||null,lng:parseFloat(form.lng)||null});
-    dbUpsert('clientes',cliToDb(c)).then(function(){reload();setModal(null);flash('ok','Cliente guardado.');});
+    var c=Object.assign({},form,{limCC:parseFloat(form.limCC)||0,deuda:parseFloat(form.deuda)||0,lat:parseFloat(form.lat)||null,lng:parseFloat(form.lng)||null});
+    if(modal==='new')save(clis.concat([Object.assign({},c,{id:uid()})]));
+    else save(clis.map(function(x){return x.id===form.id?c:x;}));
+    setModal(null);flash('ok','Cliente guardado.');
   }
-  function handleDel(id){
-    if(!confirm('¿Eliminar?'))return;
-    dbDelete('clientes',id).then(function(){reload();flash('ok','Cliente eliminado.');});
-  }
+  function handleDel(id){if(!confirm('¿Eliminar?'))return;save(clis.filter(function(c){return c.id!==id;}));}
   function handleAjuste(){
     var monto=parseFloat(ajuste.monto)||0;if(monto<=0){flash('err','Monto inválido.');return;}
     var nuevaDeuda=ajuste.tipo==='pago'?Math.max(0,saldoModal.deuda-monto):saldoModal.deuda+monto;
-    dbUpdate('clientes',saldoModal.id,{deuda:nuevaDeuda}).then(function(){reload();setSaldoModal(null);flash('ok','Saldo actualizado.');});
+    save(clis.map(function(c){return c.id===saldoModal.id?Object.assign({},c,{deuda:nuevaDeuda}):c;}));
+    setSaldoModal(null);flash('ok','Saldo actualizado.');
   }
 
   return E('div',null,
@@ -1843,15 +1688,10 @@ function Clientes(props){
    CUENTAS CORRIENTES
 ═══════════════════════════ */
 function CuentasCorrientes(){
-  var _a=useState([]),clis=_a[0],setClis=_a[1];
-  var _a2=useState([]),pedidosAll=_a2[0],setPedidosAll=_a2[1];
-  useEffect(function(){
-    dbGet('clientes').then(function(rows){if(rows)setClis(rows.map(dbToCli));});
-    dbGet('pedidos').then(function(rows){if(rows)setPedidosAll(rows.map(dbToPed));});
-  },[]);
+  var _a=useState(gl('clis',[])),clis=_a[0],setClis=_a[1];
   var deudores=clis.filter(function(c){return c.deuda>0;}).sort(function(a,b){return b.deuda-a.deuda;});
   var totalDeuda=deudores.reduce(function(s,c){return s+c.deuda;},0);
-  var pedidos=pedidosAll;
+  var pedidos=gl('pedidos',[]);
 
   function historialCliente(cliId){
     return pedidos.filter(function(p){return p.cliente.id===cliId&&p.estado==='finalizado'&&p.formaPago==='cuenta_corriente';});
@@ -1926,12 +1766,8 @@ function BarChart(props){
 
 function Estadisticas(){
   var _a=useState('mes'),period=_a[0],setPeriod=_a[1];
-  var _b=useState([]),pedidos=_b[0],setPedidos=_b[1];
-  var _c=useState([]),clis=_c[0],setClis=_c[1];
-  useEffect(function(){
-    dbGet('pedidos').then(function(rows){if(rows)setPedidos(rows.map(dbToPed));});
-    dbGet('clientes').then(function(rows){if(rows)setClis(rows.map(dbToCli));});
-  },[]);
+  var pedidos=gl('pedidos',[]);
+  var clis=gl('clis',[]);
   var filtered=pedidos.filter(function(p){return inPeriod(p,period);});
   var finalizados=filtered.filter(function(p){return p.estado==='finalizado';});
 
@@ -2004,17 +1840,12 @@ function Estadisticas(){
 function Comisiones(){
   var _a=useState(gl('comisiones',{})),com=_a[0],setCom=_a[1];
   var _b=useState('mes'),period=_b[0],setPeriod=_b[1];
-  var _pu=useState([]),usersDB=_pu[0],setUsersDB=_pu[1];
-  useEffect(function(){
-    dbGet('pedidos').then(function(rows){if(rows)sl('pedidos_cache',rows.map(dbToPed));});
-    dbGet('usuarios').then(function(rows){if(rows)setUsersDB(rows.map(dbToUser));});
-  },[]);
-  var users=usersDB.length?usersDB:gl('users',[]).filter(function(u){return u.role==='preventista'||u.role==='coadmin';});
+  var users=gl('users',[]).filter(function(u){return u.role==='preventista'||u.role==='coadmin';});
 
   function setCom1(id,val){var u=Object.assign({},com);u[id]=parseFloat(val)||0;setCom(u);sl('comisiones',u);}
 
   function calc(uid){
-    var vv=gl('pedidos_cache',[]).filter(function(p){return p.preventistaId===uid&&p.estado==='finalizado'&&inPeriod(p,period);});
+    var vv=gl('pedidos',[]).filter(function(p){return p.preventistaId===uid&&p.estado==='finalizado'&&inPeriod(p,period);});
     var total=vv.reduce(function(s,p){return s+p.total;},0);
     return {total:total,comision:total*(com[uid]||0)/100,n:vv.length};
   }
@@ -2053,7 +1884,7 @@ function Comisiones(){
    USUARIOS
 ═══════════════════════════ */
 function Usuarios(props){
-  var _a=useState([]),users=_a[0],setUsers=_a[1];
+  var _a=useState(gl('users',[])),users=_a[0],setUsers=_a[1];
   var _b=useState(null),modal=_b[0],setModal=_b[1];
   var _c=useState({nombre:'',username:'',password:'',role:'preventista',activo:true}),form=_c[0],setForm=_c[1];
   var _d=useState(null),msg=_d[0],setMsg=_d[1];
@@ -2061,11 +1892,7 @@ function Usuarios(props){
   var _e=useState({nombre:adm.nombre,username:adm.username,password:adm.password}),perfil=_e[0],setPerfil=_e[1];
   var _f=useState(null),perfilMsg=_f[0],setPerfilMsg=_f[1];
 
-  useEffect(function(){
-    dbGet('usuarios').then(function(rows){if(rows&&rows.length)setUsers(rows.map(dbToUser));});
-  },[]);
-
-  function reload(){dbGet('usuarios').then(function(rows){if(rows)setUsers(rows.map(dbToUser));});}
+  function save(u){setUsers(u);sl('users',u);}
   function F(k,v){setForm(function(f){return Object.assign({},f,{[k]:v});});}
   function FP(k,v){setPerfil(function(f){return Object.assign({},f,{[k]:v});});}
   function flash(t,m){setMsg({t:t,m:m});setTimeout(function(){setMsg(null);},3000);}
@@ -2074,11 +1901,12 @@ function Usuarios(props){
   function handleSave(){
     if(!form.nombre.trim()||!form.username.trim()||!form.password.trim()){flash('err','Nombre, usuario y contraseña son obligatorios.');return;}
     var adm2=getAdmin();
-    if(form.username.toUpperCase()===adm2.username.toUpperCase()){flash('err','Nombre de usuario ya existe.');return;}
+    if(form.username.toUpperCase()===adm2.username.toUpperCase()&&form.id!==adm2.id){flash('err','Nombre de usuario ya existe.');return;}
     var others=users.filter(function(u){return u.id!==form.id;});
     if(others.find(function(u){return u.username.toUpperCase()===form.username.toUpperCase();})){flash('err','Nombre de usuario ya existe.');return;}
-    var row=userToDb(Object.assign({},form,{id:form.id||uid()}));
-    dbUpsert('usuarios',row).then(function(){reload();setModal(null);flash('ok','Usuario guardado.');});
+    if(modal==='new')save(users.concat([Object.assign({},form,{id:uid()})]));
+    else save(users.map(function(u){return u.id===form.id?Object.assign({},form):u;}));
+    setModal(null);flash('ok','Usuario guardado.');
   }
 
   function handleSavePerfil(){
@@ -2117,12 +1945,8 @@ function Usuarios(props){
             E('td',null,u._fixed?E('span',{style:{fontSize:12,color:'var(--txt2)'}},'Editar en Mi Perfil'):
               E('div',{className:'brow'},
                 E('button',{className:'btn sm',onClick:function(){setForm(Object.assign({},u));setModal('edit');}},'✏️'),
-                E('button',{className:'btn sm '+(u.activo?'warn':'ok'),onClick:function(){
-                  dbUpdate('usuarios',u.id,{activo:!u.activo}).then(function(){reload();});
-                }},u.activo?'🔴 Desactivar':'🟢 Activar'),
-                E('button',{className:'btn sm dan',onClick:function(){
-                  if(confirm('¿Eliminar?'))dbDelete('usuarios',u.id).then(function(){reload();});
-                }},'Eliminar')
+                E('button',{className:'btn sm '+(u.activo?'warn':'ok'),onClick:function(){save(users.map(function(x){return x.id===u.id?Object.assign({},x,{activo:!x.activo}):x;}));}},u.activo?'🔴 Desactivar':'🟢 Activar'),
+                E('button',{className:'btn sm dan',onClick:function(){if(confirm('¿Eliminar?'))save(users.filter(function(x){return x.id!==u.id;}));}},'Eliminar')
               )
             )
           );
@@ -2233,53 +2057,6 @@ function Configuracion(){
 /* ═══════════════════════════
    APP ROOT
 ═══════════════════════════ */
-/* ═══════════════════════════
-   BOTTOM NAV (mobile)
-═══════════════════════════ */
-function BottomNav(props){
-  var user=props.user;
-  var mod=props.mod;
-  var setMod=props.setMod;
-  var isPrev=user.role==='preventista';
-  var isPrep=user.role==='preparador';
-  var isAdminOrCo=user.role==='admin'||user.role==='coadmin';
-  var pedidos=gl('pedidos',[]);
-  var pendCount=pedidos.filter(function(p){return p.estado==='pendiente';}).length;
-  var readyCount=pedidos.filter(function(p){return p.estado==='preparado'&&p.preventistaId===user.id;}).length;
-
-  function item(id,icon,label,badge){
-    return E('button',{key:id,className:'bn-item'+(mod===id?' on':''),onClick:function(){setMod(id);}},
-      badge>0&&E('span',{className:'bn-dot'}),
-      E('span',{className:'bn-icon'},icon),
-      E('span',null,label)
-    );
-  }
-
-  if(isPrev) return E('div',{className:'bottom-nav'},
-    item('dashboard','📊','Inicio'),
-    item('nuevo-pedido','🛒','Pedido'),
-    item('mis-pedidos','📦','Mis Pedidos',readyCount),
-    item('clientes','👥','Clientes'),
-    item('mapa-gps','🗺️','GPS')
-  );
-
-  if(isPrep) return E('div',{className:'bottom-nav'},
-    item('dashboard','📊','Inicio'),
-    item('cola-prep','⚙️','Preparar',pendCount),
-    item('articulos','📦','Artículos')
-  );
-
-  if(isAdminOrCo) return E('div',{className:'bottom-nav'},
-    item('dashboard','📊','Inicio'),
-    item('nuevo-pedido','🛒','Pedido'),
-    item('todos-pedidos','📋','Pedidos'),
-    item('clientes','👥','Clientes'),
-    item('estadisticas','📈','Stats')
-  );
-
-  return null;
-}
-
 var MOD_TITLES={
   'dashboard':'Dashboard','nuevo-pedido':'Nuevo Pedido','mis-pedidos':'Mis Pedidos',
   'mapa-gps':'Mi Recorrido GPS','cola-prep':'Cola de Preparación',
@@ -2328,31 +2105,21 @@ function App(){
       onLogout:function(){setUser(null);setMod('dashboard');setSbOpen(false);}}),
     E('div',{className:'main'},
       E('div',{className:'topbar'},
-        E('div',{style:{display:'flex',alignItems:'center',gap:8}},
+        E('div',{style:{display:'flex',alignItems:'center',gap:10}},
           E('button',{className:'hamburger',onClick:function(){setSbOpen(!sbOpen);}},'☰'),
           E('div',{className:'topbar-title'},MOD_TITLES[mod]||mod)
         ),
         E('div',{className:'topbar-right'},
-          E('button',{
-            onClick:function(){setSbOpen(!sbOpen);},
-            style:{background:'none',border:'none',cursor:'pointer',fontSize:13,
-              color:'var(--blue)',fontWeight:700,padding:'6px 10px',
-              display:'flex',alignItems:'center',gap:4}
-          },'⚙️ Más'),
-          E('button',{
-            onClick:function(){setUser(null);setMod('dashboard');setSbOpen(false);},
-            style:{background:'none',border:'none',cursor:'pointer',fontSize:13,
-              color:'var(--txt2)',padding:'6px 8px'}
-          },'Salir')
+          E('div',{style:{fontSize:12,color:'var(--txt2)',display:'none'===''?'block':'none'}},new Date().toLocaleString('es-AR'))
         )
       ),
-      E('div',{className:'page'},renderMod()),
-      E(BottomNav,{user:user,mod:mod,setMod:goMod})
+      E('div',{className:'page'},renderMod())
     )
   );
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(E(App));
 </script>
-</body>
-</html>
+
+
+</body></html>
