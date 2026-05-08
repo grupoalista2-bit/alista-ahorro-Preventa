@@ -2350,23 +2350,39 @@ function Articulos(props){
         if(!rows.length){flash('err','Archivo vacío.');return;}
         var done=0;var total=0;
         rows.forEach(function(row){
-          var cod=String(row['Código']||row['Codigo']||'').trim();
-          var desc=String(row['Descripción']||row['Descripcion']||'').trim();
+          // Acepta cualquier variante del nombre de columna
+          var cod=String(
+            row['Código']||row['Codigo']||row['código']||row['codigo']||
+            row['Código Propio']||row['Codigo Propio']||row['codigo propio']||
+            row['CodPropio']||row['COD']||row['cod']||''
+          ).trim();
+          var desc=String(
+            row['Descripción']||row['Descripcion']||row['descripción']||row['descripcion']||
+            row['Nombre']||row['nombre']||row['DESCRIPCION']||''
+          ).trim();
+          var costo=parseFloat(
+            row['Precio de Costo']||row['Precio Costo']||row['precio de costo']||
+            row['precio costo']||row['Costo']||row['costo']||row['COSTO']||0
+          )||0;
+          var precio=parseFloat(
+            row['Precio de Venta']||row['Precio Venta']||row['precio de venta']||
+            row['precio venta']||row['Precio Base']||row['Precio']||row['precio']||
+            row['PRECIO']||row['PVP']||0
+          )||0;
           if(!cod||!desc)return;
           total++;
           var existing=arts.find(function(a){return a.cod===cod;});
           dbUpsert('articulos',artToDb({
-            id:existing?existing.id:uid(),cod:cod,
-            codArt:String(row['Cód.Artículo']||row['CodArticulo']||'').trim(),
-            desc:desc,
-            precio:parseFloat(row['Precio Base']||row['Precio']||0)||0,
-            costo:parseFloat(row['Precio Costo']||row['Costo']||0)||0,
-            estado:'activo'
-          })).then(function(){done++;if(done===total){reload();flash('ok',done+' artículos importados.');}})
-            .catch(function(){done++;});
+            id:existing?existing.id:uid(),
+            cod:cod,codArt:'',desc:desc,
+            precio:precio,costo:costo,estado:'activo'
+          })).then(function(){
+            done++;
+            if(done===total){reload();flash('ok',done+' artículos importados correctamente.');}
+          }).catch(function(){done++;});
         });
-        if(!total)flash('err','No se encontraron filas válidas.');
-      }catch(err){flash('err','Error al leer el archivo.');}
+        if(!total)flash('err','No se encontraron filas válidas. Verificá que el archivo tenga columnas de Código y Descripción.');
+      }catch(err){flash('err','Error al leer el archivo. Asegurate que sea .xlsx');}
     };
     reader.readAsArrayBuffer(file);
   }
