@@ -2352,22 +2352,22 @@ function Articulos(props){
         rows.forEach(function(row){
           // Acepta cualquier variante del nombre de columna
           var cod=String(
-            row['Código']||row['Codigo']||row['código']||row['codigo']||
+            row['CODIGO_PROPIO']||row['Código']||row['Codigo']||row['código']||row['codigo']||
             row['Código Propio']||row['Codigo Propio']||row['codigo propio']||
             row['CodPropio']||row['COD']||row['cod']||''
-          ).trim();
+          ).trim().replace(/^'/,'');
           var desc=String(
-            row['Descripción']||row['Descripcion']||row['descripción']||row['descripcion']||
-            row['Nombre']||row['nombre']||row['DESCRIPCION']||''
+            row['DESCRIPCION']||row['Descripción']||row['Descripcion']||row['descripción']||
+            row['descripcion']||row['Nombre']||row['nombre']||row['DESCRIPCION']||''
           ).trim();
           var costo=parseFloat(
-            row['Precio de Costo']||row['Precio Costo']||row['precio de costo']||
-            row['precio costo']||row['Costo']||row['costo']||row['COSTO']||0
+            row['COSTO_CON_IVA']||row['Precio de Costo']||row['Precio Costo']||
+            row['precio de costo']||row['precio costo']||row['Costo']||row['costo']||row['COSTO']||0
           )||0;
           var precio=parseFloat(
-            row['Precio de Venta']||row['Precio Venta']||row['precio de venta']||
-            row['precio venta']||row['Precio Base']||row['Precio']||row['precio']||
-            row['PRECIO']||row['PVP']||0
+            row['P_MAYORISTA']||row['Precio de Venta']||row['Precio Venta']||
+            row['precio de venta']||row['precio venta']||row['Precio Base']||
+            row['Precio']||row['precio']||row['PRECIO']||row['PVP']||0
           )||0;
           if(!cod||!desc)return;
           total++;
@@ -2382,7 +2382,7 @@ function Articulos(props){
           }).catch(function(){done++;});
         });
         if(!total)flash('err','No se encontraron filas válidas. Verificá que el archivo tenga columnas de Código y Descripción.');
-      }catch(err){flash('err','Error al leer el archivo. Asegurate que sea .xlsx');}
+      }catch(err){flash('err','Error al leer el archivo: '+err.message+'. Asegurate que sea .xlsx o .xls y que no esté abierto en Excel.');}
     };
     reader.readAsArrayBuffer(file);
   }
@@ -2393,7 +2393,7 @@ function Articulos(props){
         E('div',{className:'card-title'},'📦 Artículos'),
         E('div',{className:'brow'},
           isAdmin&&E('label',{className:'btn',style:{cursor:'pointer'}},'📥 Importar Excel',
-            E('input',{type:'file',accept:'.xlsx,.xls',style:{display:'none'},onChange:doImport})),
+            E('input',{type:'file',accept:'.xlsx,.xls,.csv',style:{display:'none'},onChange:doImport})),
           isAdmin&&E('button',{className:'btn',onClick:doExport},'📊 Exportar'),
           isAdmin&&E('button',{className:'btn pri',onClick:function(){setForm(FORM0);setModal('new');}},'+ Nuevo')
         )
