@@ -9,7 +9,7 @@
 <script crossorigin="anonymous" src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script crossorigin="anonymous" src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.min.js"></script>
 <script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style id="print-style">
 @media print{
@@ -2341,6 +2341,12 @@ function Articulos(props){
   function doImport(e){
     var file=e.target.files[0];if(!file)return;
     e.target.value='';
+    if(typeof XLSX==='undefined'){
+      flash('err','La librería Excel no cargó. Recargá la página (F5) con internet activo y volvé a intentar.');
+      return;
+    }
+    var ok=confirm('¿Reemplazar TODOS los artículos con los del archivo nuevo?\n\nAceptar = borra los actuales y carga los nuevos\nCancelar = no hace nada');
+    if(!ok)return;
     var reader=new FileReader();
     reader.onload=function(ev){
       try{
@@ -2348,9 +2354,8 @@ function Articulos(props){
         var wb=XLSX.read(data,{type:'array'});
         var rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
         if(!rows.length){flash('err','Archivo vacío.');return;}
-        var done=0;var total=0;
+        var nuevos=[];
         rows.forEach(function(row){
-          // Acepta cualquier variante del nombre de columna
           var cod=String(
             row['CODIGO_PROPIO']||row['Código']||row['Codigo']||row['código']||row['codigo']||
             row['Código Propio']||row['Codigo Propio']||row['codigo propio']||
@@ -2358,34 +2363,31 @@ function Articulos(props){
           ).trim().replace(/^'/,'');
           var desc=String(
             row['DESCRIPCION']||row['Descripción']||row['Descripcion']||row['descripción']||
-            row['descripcion']||row['Nombre']||row['nombre']||row['DESCRIPCION']||''
+            row['descripcion']||row['Nombre']||row['nombre']||''
           ).trim();
-          var costo=parseFloat(
-            row['COSTO_CON_IVA']||row['Precio de Costo']||row['Precio Costo']||
-            row['precio de costo']||row['precio costo']||row['Costo']||row['costo']||row['COSTO']||0
-          )||0;
-          var precio=parseFloat(
-            row['P_MAYORISTA']||row['Precio de Venta']||row['Precio Venta']||
-            row['precio de venta']||row['precio venta']||row['Precio Base']||
-            row['Precio']||row['precio']||row['PRECIO']||row['PVP']||0
-          )||0;
+          var costo=parseFloat(row['COSTO_CON_IVA']||row['Precio de Costo']||row['Precio Costo']||row['Costo']||row['costo']||0)||0;
+          var precio=parseFloat(row['P_MAYORISTA']||row['Precio de Venta']||row['Precio Venta']||row['Precio Base']||row['Precio']||row['precio']||0)||0;
           if(!cod||!desc)return;
-          total++;
-          var existing=arts.find(function(a){return a.cod===cod;});
-          dbUpsert('articulos',artToDb({
-            id:existing?existing.id:uid(),
-            cod:cod,codArt:'',desc:desc,
-            precio:precio,costo:costo,estado:'activo'
-          })).then(function(){
-            done++;
-            if(done===total){reload();flash('ok',done+' artículos importados correctamente.');}
-          }).catch(function(){done++;});
+          nuevos.push({id:uid(),cod:cod,codArt:'',desc:desc,precio:precio,costo:costo,estado:'activo'});
         });
-        if(!total)flash('err','No se encontraron filas válidas. Verificá que el archivo tenga columnas de Código y Descripción.');
-      }catch(err){flash('err','Error al leer el archivo: '+err.message+'. Asegurate que sea .xlsx o .xls y que no esté abierto en Excel.');}
+        if(!nuevos.length){flash('err','No se encontraron filas válidas.');return;}
+        flash('ok','Borrando artículos anteriores…');
+        sbFetch('articulos?id=neq.00000000-0000-0000-0000-000000000000',{method:'DELETE'})
+          .then(function(){
+            flash('ok','Cargando '+nuevos.length+' artículos…');
+            var done=0;
+            nuevos.forEach(function(art){
+              dbUpsert('articulos',artToDb(art)).then(function(){
+                done++;
+                if(done===nuevos.length){reload();flash('ok','✓ '+done+' artículos cargados correctamente.');}
+              }).catch(function(){done++;});
+            });
+          }).catch(function(e){flash('err','Error al borrar artículos anteriores: '+(e.message||''));});
+      }catch(err){flash('err','Error al leer el archivo: '+err.message);}
     };
     reader.readAsArrayBuffer(file);
   }
+
 
   return E('div',null,
     E('div',{className:'card'},
@@ -3090,4 +3092,3 @@ ReactDOM.createRoot(document.getElementById('root')).render(E(App));
 </script>
 </body>
 </html>
-
