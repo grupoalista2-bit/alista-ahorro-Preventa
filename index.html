@@ -10,6 +10,45 @@
 <script crossorigin="anonymous" src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.min.js"></script>
+<script>
+// Si el CDN principal falló, intentar alternativas
+if(typeof XLSX==='undefined'){
+  (function(){
+    var cdns=[
+      'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.min.js',
+      'https://unpkg.com/xlsx@0.18.5/dist/xlsx.min.js'
+    ];
+    var i=0;
+    function tryNext(){
+      if(i>=cdns.length)return;
+      var s=document.createElement('script');
+      s.src=cdns[i++];
+      s.onerror=tryNext;
+      document.head.appendChild(s);
+    }
+    tryNext();
+  })();
+}
+</script>
+<script>
+// Si el CDN principal falló, carga desde alternativas
+(function(){
+  if(typeof XLSX!=='undefined')return;
+  var cdns=[
+    'https://unpkg.com/xlsx@0.18.5/dist/xlsx.min.js',
+    'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.min.js'
+  ];
+  function tryNext(i){
+    if(i>=cdns.length)return;
+    var s=document.createElement('script');
+    s.src=cdns[i];
+    s.onload=function(){window._xlsxReady=true;};
+    s.onerror=function(){tryNext(i+1);};
+    document.head.appendChild(s);
+  }
+  tryNext(0);
+})();
+</script>
 <script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style id="print-style">
 @media print{
@@ -2393,54 +2432,73 @@ function Articulos(props){
     })}],'articulos_alista.xlsx');
   }
 
+  function cargarXLSX(callback){
+    if(typeof XLSX!=='undefined'){callback();return;}
+    flash('ok','Cargando librería Excel…');
+    var cdns=[
+      'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.min.js',
+      'https://unpkg.com/xlsx@0.18.5/dist/xlsx.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.min.js'
+    ];
+    var i=0;
+    function tryNext(){
+      if(i>=cdns.length){callback(new Error('No se pudo cargar la librería Excel. Verificá tu conexión a internet.'));return;}
+      var s=document.createElement('script');
+      s.src=cdns[i++];
+      s.onload=function(){callback();};
+      s.onerror=function(){tryNext();};
+      document.head.appendChild(s);
+    }
+    tryNext();
+  }
+
   function doImport(e){
     var file=e.target.files[0];if(!file)return;
     e.target.value='';
-    if(typeof XLSX==='undefined'){
-      flash('err','La librería Excel no cargó. Recargá la página (F5) con internet activo y volvé a intentar.');
-      return;
-    }
     var ok=confirm('¿Reemplazar TODOS los artículos con los del archivo nuevo?\n\nAceptar = borra los actuales y carga los nuevos\nCancelar = no hace nada');
     if(!ok)return;
-    var reader=new FileReader();
-    reader.onload=function(ev){
-      try{
-        var data=new Uint8Array(ev.target.result);
-        var wb=XLSX.read(data,{type:'array'});
-        var rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
-        if(!rows.length){flash('err','Archivo vacío.');return;}
-        var nuevos=[];
-        rows.forEach(function(row){
-          var cod=String(
-            row['CODIGO_PROPIO']||row['Código']||row['Codigo']||row['código']||row['codigo']||
-            row['Código Propio']||row['Codigo Propio']||row['codigo propio']||
-            row['CodPropio']||row['COD']||row['cod']||''
-          ).trim().replace(/^'/,'');
-          var desc=String(
-            row['DESCRIPCION']||row['Descripción']||row['Descripcion']||row['descripción']||
-            row['descripcion']||row['Nombre']||row['nombre']||''
-          ).trim();
-          var costo=parseFloat(row['COSTO_CON_IVA']||row['Precio de Costo']||row['Precio Costo']||row['Costo']||row['costo']||0)||0;
-          var precio=parseFloat(row['P_MAYORISTA']||row['Precio de Venta']||row['Precio Venta']||row['Precio Base']||row['Precio']||row['precio']||0)||0;
-          if(!cod||!desc)return;
-          nuevos.push({id:uid(),cod:cod,codArt:'',desc:desc,precio:precio,costo:costo,estado:'activo'});
-        });
-        if(!nuevos.length){flash('err','No se encontraron filas válidas.');return;}
-        flash('ok','Borrando artículos anteriores…');
-        sbFetch('articulos?id=neq.00000000-0000-0000-0000-000000000000',{method:'DELETE'})
-          .then(function(){
-            flash('ok','Cargando '+nuevos.length+' artículos…');
-            var done=0;
-            nuevos.forEach(function(art){
-              dbUpsert('articulos',artToDb(art)).then(function(){
-                done++;
-                if(done===nuevos.length){reload();flash('ok','✓ '+done+' artículos cargados correctamente.');}
-              }).catch(function(){done++;});
-            });
-          }).catch(function(e){flash('err','Error al borrar artículos anteriores: '+(e.message||''));});
-      }catch(err){flash('err','Error al leer el archivo: '+err.message);}
-    };
-    reader.readAsArrayBuffer(file);
+
+    cargarXLSX(function(err){
+      if(err){flash('err',err.message);return;}
+
+      var reader=new FileReader();
+      reader.onload=function(ev){
+        try{
+          var data=new Uint8Array(ev.target.result);
+          var wb=XLSX.read(data,{type:'array'});
+          var rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
+          if(!rows.length){flash('err','El archivo está vacío.');return;}
+          var nuevos=[];
+          rows.forEach(function(row){
+            var cod=String(
+              row['CODIGO_PROPIO']||row['Código']||row['Codigo']||row['CODIGO']||
+              row['código']||row['codigo']||row['COD']||row['cod']||''
+            ).trim().replace(/^'/,'');
+            var desc=String(
+              row['DESCRIPCION']||row['Descripción']||row['DESCRIPCION']||
+              row['Descripcion']||row['descripcion']||row['NOMBRE']||row['Nombre']||''
+            ).trim();
+            if(!cod||!desc)return;
+            var precio=parseFloat(String(row['P_MAYORISTA']||row['PRECIO_VENTA']||row['Precio de Venta']||row['Precio Venta']||row['Precio Base']||row['PRECIO']||row['Precio']||0).replace(',','.'))||0;
+            var costo=parseFloat(String(row['COSTO_CON_IVA']||row['COSTO']||row['Costo']||row['Precio de Costo']||row['PRECIO_COSTO']||0).replace(',','.'))||0;
+            nuevos.push({id:uid(),cod:cod,codArt:'',desc:desc,precio:precio,costo:costo,estado:'activo'});
+          });
+          if(!nuevos.length){flash('err','Sin filas válidas. Verificá que el archivo tenga columnas CODIGO_PROPIO y DESCRIPCION.');return;}
+          flash('ok','Borrando artículos anteriores…');
+          sbFetch('articulos?id=neq.00000000-0000-0000-0000-000000000000',{method:'DELETE'})
+            .then(function(){
+              flash('ok','Cargando '+nuevos.length+' artículos…');
+              var done=0;
+              nuevos.forEach(function(art){
+                dbUpsert('articulos',artToDb(art)).then(function(){
+                  done++;if(done===nuevos.length){reload();flash('ok','✓ '+done+' artículos cargados correctamente.');}
+                }).catch(function(){done++;});
+              });
+            }).catch(function(e){flash('err','Error al borrar: '+(e.message||''));});
+        }catch(err2){flash('err','Error al leer el archivo: '+err2.message);}
+      };
+      reader.readAsArrayBuffer(file);
+    });
   }
 
 
@@ -2450,7 +2508,7 @@ function Articulos(props){
         E('div',{className:'card-title'},'📦 Artículos'),
         E('div',{className:'brow'},
           isAdmin&&E('label',{className:'btn',style:{cursor:'pointer'}},'📥 Importar Excel',
-            E('input',{type:'file',accept:'.xlsx,.xls,.csv',style:{display:'none'},onChange:doImport})),
+            E('input',{type:'file',accept:'.xlsx,.xls',style:{display:'none'},onChange:doImport})),
           isAdmin&&E('button',{className:'btn',onClick:doExport},'📊 Exportar'),
           isAdmin&&E('button',{className:'btn pri',onClick:function(){setForm(FORM0);setModal('new');}},'+ Nuevo')
         )
