@@ -2563,6 +2563,33 @@ function Articulos(props){
   }
 
 
+  if(pasteModal){
+    return E(Modal,{title:'Importar desde Excel — Pegar contenido',onClose:function(){setPasteModal(false);setPasteText('');},wide:true},
+      E('div',{style:{background:'#eef3fb',borderRadius:8,padding:'12px 14px',marginBottom:14,fontSize:13,lineHeight:1.9}},
+        E('div',{style:{fontWeight:700,marginBottom:4}},'Pasos:'),
+        E('div',null,'1. Abrí tu Excel'),
+        E('div',null,'2. Presioná Ctrl+A para seleccionar todo (incluido el encabezado)'),
+        E('div',null,'3. Presioná Ctrl+C para copiar'),
+        E('div',null,'4. Hacé click en el cuadro de abajo y presioná Ctrl+V')
+      ),
+      E('div',{className:'fg'},
+        E('label',null,'Contenido del Excel:'),
+        E('textarea',{className:'fi',rows:10,
+          placeholder:'Pegá aquí con Ctrl+V…',
+          value:pasteText,
+          onChange:function(e){setPasteText(e.target.value);},
+          style:{fontFamily:'monospace',fontSize:12,resize:'vertical'}})
+      ),
+      pasteText.trim().length>0&&E('div',{style:{fontSize:13,color:'var(--blue)',marginBottom:8,fontWeight:600}},
+        'Detectadas aprox. '+(Math.max(0,pasteText.trim().split('\n').length-1))+' filas'
+      ),
+      E('div',{className:'brow',style:{marginTop:12}},
+        E('button',{className:'btn ok',style:{flex:1},onClick:parsePaste},'Importar'),
+        E('button',{className:'btn',style:{flex:1},onClick:function(){setPasteModal(false);setPasteText('');}}, 'Cancelar')
+      )
+    );
+  }
+
   return E('div',null,
     E('div',{className:'card'},
       E('div',{className:'card-hd'},
@@ -2625,32 +2652,6 @@ function Articulos(props){
       E('div',{className:'brow',style:{marginTop:16}},
         E('button',{className:'btn pri',onClick:handleSave,style:{flex:1}},'💾 Guardar'),
         E('button',{className:'btn',onClick:function(){setModal(null);},style:{flex:1}},'Cancelar')
-      )
-    )
-  ,
-    pasteModal&&E(Modal,{title:'Pegar desde Excel',onClose:function(){setPasteModal(false);},wide:true},
-      E('div',{style:{background:'#eef3fb',borderRadius:8,padding:'12px 14px',marginBottom:14,fontSize:13}},
-        E('div',{style:{fontWeight:700,marginBottom:6}},'Cómo hacerlo:'),
-        E('ol',{style:{margin:'0 0 0 18px',lineHeight:2}},
-          E('li',null,'Abrí tu Excel'),
-          E('li',null,'Seleccioná todo incluyendo encabezados (',E('strong',null,'Ctrl+A'),')'),
-          E('li',null,'Copiá (',E('strong',null,'Ctrl+C'),')'),
-          E('li',null,'Hacé click en el cuadro de abajo y pegá (',E('strong',null,'Ctrl+V'),')')
-        )
-      ),
-      E('div',{className:'fg'},
-        E('label',null,'Pegá el contenido acá:'),
-        E('textarea',{className:'fi',rows:8,
-          placeholder:'Pegá aquí con Ctrl+V…',
-          value:pasteText,onChange:function(e){setPasteText(e.target.value);},
-          style:{fontFamily:'monospace',fontSize:12,resize:'vertical',minHeight:160}})
-      ),
-      pasteText.trim()&&E('div',{style:{fontSize:13,color:'var(--txt2)',marginBottom:10}},
-        'Filas detectadas: '+(pasteText.trim().split(/\r?\n/).length-1)+' artículos (aprox.)'
-      ),
-      E('div',{className:'brow',style:{marginTop:8}},
-        E('button',{className:'btn ok',style:{flex:1},onClick:parsePaste},'✅ Importar'),
-        E('button',{className:'btn',style:{flex:1},onClick:function(){setPasteModal(false);}},'Cancelar')
       )
     )
   );
