@@ -1,4 +1,4 @@
-/* ALISTA AHORRO v25 objetivos-simple
+/* ALISTA AHORRO v29 oferta-relampago-flyer-a4
    Código de aplicación separado del HTML.
    No poner service_role keys ni contraseñas en este archivo. */
 'use strict';
@@ -11,7 +11,7 @@ var E=R.createElement;
    CONSTANTS
 ═══════════════════════════ */
 var ADMIN_DEF={id:'root',username:'ADMINISTRADOR',nombre:'Alejandro',role:'admin',activo:true,permisos:{max_desc:10,desc_deshabilitado:false}};
-var BIZ={nombre:'ALISTA AHORRO',dir:'Los Juríes, Santiago del Estero',tel:'(03862) 424500'};
+var BIZ={nombre:'ALISTA AHORRO',dir:'Calle Jujuy s/n B° Centro entre calle Sarmiento y Av. San Martín, Los Juríes',tel:'3857476927',wa:'3857476927',instagram:'ALISTA AHORRO',sucursal:''};
 var LOS_JURIOS=[-28.466,-62.096];
 
 var DEMO_ARTS=[
@@ -219,6 +219,28 @@ function dbDeleteAllArticulos(){
   });
 }
 
+// Desactiva ofertas vigentes antes/después de importar una lista nueva.
+// No borra ofertas: quedan en historial para que Admin/CoAdmin las revise y reactive.
+function dbDesactivarOfertasActivasPorImportacion(){
+  return sbFetch('ofertas_preventistas?activo=eq.true',{
+    method:'PATCH',
+    headers:{'Prefer':'return=representation'},
+    body:JSON.stringify({activo:false,updated_at:(new Date()).toISOString()})
+  }).then(function(r){
+    // Si la tabla todavía no existe o no hay permiso, no frenamos la importación de artículos.
+    if(!r.ok){
+      return r.text().then(function(t){
+        console.warn('No se pudieron desactivar ofertas',r.status,t);
+        return {ok:false,status:r.status,text:t};
+      });
+    }
+    return r.json().then(function(rows){return {ok:true,count:Array.isArray(rows)?rows.length:0};}).catch(function(){return {ok:true,count:0};});
+  }).catch(function(e){
+    console.warn('dbDesactivarOfertasActivasPorImportacion',e);
+    return {ok:false,error:e};
+  });
+}
+
 function dbInsertArticulosBatch(arts,onProgress){
   var rows=arts.map(artToDb);
   var size=400;
@@ -310,6 +332,107 @@ function dbToObj(r){return {
   objetivoCobranza:parseFloat(r.objetivo_cobranza)||0,
   activo:r.activo!==false
 };}
+
+
+// Ofertas para preventistas + importación segura
+function ofertaToDb(o){return {
+  id:o.id,
+  articulo_id:o.articuloId||o.articulo_id||'',
+  cod:o.cod||'',
+  cod_art:o.codArt||o.cod_art||'',
+  descripcion:o.descripcion||o.desc||'',
+  precio_regular:parseFloat(o.precioRegular||o.precio_regular)||0,
+  precio_oferta:parseFloat(o.precioOferta||o.precio_oferta)||0,
+  costo:parseFloat(o.costo)||0,
+  fecha_desde:o.fechaDesde||o.fecha_desde,
+  fecha_hasta:o.fechaHasta||o.fecha_hasta||null,
+  stock_info:o.stockInfo||o.stock_info||'',
+  observacion:o.observacion||'',
+  foto_url:o.fotoUrl||o.foto_url||'',
+  mostrar_flyer:o.mostrarFlyer!==false,
+  mostrar_precio_anterior:o.mostrarPrecioAnterior!==false,
+  mostrar_vigencia:o.mostrarVigencia!==false,
+  orden_flyer:parseInt(o.ordenFlyer||o.orden_flyer)||0,
+  activo:o.activo!==false,
+  created_by:o.createdBy||o.created_by||''
+};}
+function dbToOferta(r){return {
+  id:r.id,
+  articuloId:r.articulo_id||'',
+  cod:r.cod||'',
+  codArt:r.cod_art||'',
+  descripcion:r.descripcion||'',
+  precioRegular:parseFloat(r.precio_regular)||0,
+  precioOferta:parseFloat(r.precio_oferta)||0,
+  costo:parseFloat(r.costo)||0,
+  fechaDesde:r.fecha_desde||'',
+  fechaHasta:r.fecha_hasta||'',
+  stockInfo:r.stock_info||'',
+  observacion:r.observacion||'',
+  fotoUrl:r.foto_url||'',
+  mostrarFlyer:r.mostrar_flyer!==false,
+  mostrarPrecioAnterior:r.mostrar_precio_anterior!==false,
+  mostrarVigencia:r.mostrar_vigencia!==false,
+  ordenFlyer:parseInt(r.orden_flyer)||0,
+  activo:r.activo!==false,
+  createdBy:r.created_by||''
+};}
+function ofertaVigente(o,fecha){
+  fecha=fecha||((new Date()).toISOString().slice(0,10));
+  if(o.activo===false)return false;
+  if(o.fechaDesde&&o.fechaDesde>fecha)return false;
+  if(o.fechaHasta&&o.fechaHasta<fecha)return false;
+  return true;
+}
+
+function ofertaActivaParaArticulo(ofertas,art,fecha){
+  if(!art)return null;
+  fecha=fecha||((new Date()).toISOString().slice(0,10));
+  var aid=String(art.id||''),cod=String(art.cod||''),codArt=String(art.codArt||'');
+  var vig=(ofertas||[]).filter(function(o){
+    return ofertaVigente(o,fecha)&&(
+      (o.articuloId&&String(o.articuloId)===aid)||
+      (o.cod&&String(o.cod)===cod)||
+      (o.codArt&&codArt&&String(o.codArt)===codArt)
+    );
+  });
+  vig.sort(function(a,b){return (parseFloat(a.precioOferta)||999999999)-(parseFloat(b.precioOferta)||999999999);});
+  return vig[0]||null;
+}
+function precioPedidoConOferta(art,ofertas){
+  var o=ofertaActivaParaArticulo(ofertas,art);
+  return {oferta:o,precio:o?parseFloat(o.precioOferta)||artPrecioPublicoUnit(art):artPrecioPublicoUnit(art)};
+}
+function fileToCompressedDataUrl(file,maxSize,quality){
+  maxSize=maxSize||900; quality=quality||0.78;
+  return new Promise(function(resolve,reject){
+    if(!file){resolve('');return;}
+    if(!/^image\//.test(file.type||'')){reject(new Error('El archivo debe ser una imagen.'));return;}
+    var reader=new FileReader();
+    reader.onload=function(){
+      var img=new Image();
+      img.onload=function(){
+        var w=img.width,h=img.height;
+        var scale=Math.min(1,maxSize/Math.max(w,h));
+        var canvas=document.createElement('canvas');
+        canvas.width=Math.max(1,Math.round(w*scale));
+        canvas.height=Math.max(1,Math.round(h*scale));
+        var ctx=canvas.getContext('2d');
+        ctx.fillStyle='#ffffff';ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.drawImage(img,0,0,canvas.width,canvas.height);
+        resolve(canvas.toDataURL('image/jpeg',quality));
+      };
+      img.onerror=function(){reject(new Error('No se pudo leer la imagen.'));};
+      img.src=reader.result;
+    };
+    reader.onerror=function(){reject(new Error('No se pudo leer el archivo.'));};
+    reader.readAsDataURL(file);
+  });
+}
+function descargarDataUrl(dataUrl,nombre){
+  var a=document.createElement('a');a.href=dataUrl;a.download=nombre||'imagen.png';document.body.appendChild(a);a.click();setTimeout(function(){document.body.removeChild(a);},50);
+}
+
 function pctCumplido(actual,obj){obj=parseFloat(obj)||0;actual=parseFloat(actual)||0;return obj>0?Math.min(100,Math.round((actual/obj)*100)):0;}
 function ObjetivoBar(props){
   var obj=parseFloat(props.obj)||0,act=parseFloat(props.act)||0,pct=pctCumplido(act,obj);
@@ -413,8 +536,33 @@ function boot(){
 var uid=function(){return '_'+Math.random().toString(36).slice(2,9);};
 var $=function(n){return (n||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});};
 var $i=function(n){return (n||0).toLocaleString('es-AR',{maximumFractionDigits:0});};
-var nowStr=function(){return new Date().toLocaleString('es-AR');};
-var todayStr=function(){return new Date().toLocaleDateString('es-AR');};
+function pad2(n){return String(n).padStart(2,'0');}
+function formatDateTime24(d){
+  d=d||new Date();
+  return pad2(d.getDate())+'/'+pad2(d.getMonth()+1)+'/'+d.getFullYear()+' '+pad2(d.getHours())+':'+pad2(d.getMinutes())+':'+pad2(d.getSeconds());
+}
+function formatDateOnly(d){
+  d=d||new Date();
+  return pad2(d.getDate())+'/'+pad2(d.getMonth()+1)+'/'+d.getFullYear();
+}
+function fechaSolo(v){
+  v=String(v||'').trim();
+  if(!v)return '—';
+  var m=v.match(/^(\d{1,2}\/\d{1,2}\/\d{4})/);
+  if(m)return m[1];
+  if(v.indexOf(',')>=0)return v.split(',')[0].trim();
+  return v;
+}
+function horaSolo(v){
+  v=String(v||'').trim();
+  if(!v)return '—';
+  var m=v.match(/(\d{1,2}:\d{2}(?::\d{2})?)$/);
+  if(m)return m[1];
+  if(v.indexOf(',')>=0)return (v.split(',')[1]||v).trim();
+  return v;
+}
+var nowStr=function(){return formatDateTime24(new Date());};
+var todayStr=function(){return formatDateOnly(new Date());};
 
 function normTxt(v){
   return String(v==null?'':v)
@@ -593,8 +741,12 @@ function estadoLabel(s){
 }
 
 function parseFecha(s){
-  try{var p=s.split(',')[0].trim().split('/');return new Date(+p[2],+p[1]-1,+p[0]);}
-  catch(e){return new Date(0);}
+  try{
+    s=String(s||'').trim();
+    var m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if(m)return new Date(+m[3],+m[2]-1,+m[1]);
+    return new Date(s);
+  }catch(e){return new Date(0);}
 }
 function inPeriod(v,period){
   var d=parseFecha(v.fecha);var now=new Date();
@@ -698,6 +850,95 @@ function exportXLSX(sheets,filename){
     XLSX.utils.book_append_sheet(wb,ws,s.name);
   });
   XLSX.writeFile(wb,filename);
+}
+
+
+function toInputDateLocal(d){
+  d=d||new Date();
+  var y=d.getFullYear();
+  var m=String(d.getMonth()+1).padStart(2,'0');
+  var day=String(d.getDate()).padStart(2,'0');
+  return y+'-'+m+'-'+day;
+}
+function dateInputToDate(v,endOfDay){
+  if(!v)return null;
+  var p=String(v).split('-');
+  if(p.length!==3)return null;
+  var d=new Date(+p[0],(+p[1])-1,+p[2],endOfDay?23:0,endOfDay?59:0,endOfDay?59:0,endOfDay?999:0);
+  return isNaN(d.getTime())?null:d;
+}
+function pedidoFechaParaStock(p){return parseFecha(p.fechaEntregado||p.fechaPreparado||p.fecha||'');}
+function pedidoEnRangoStock(p,desde,hasta){
+  var d=pedidoFechaParaStock(p);
+  if(!d||isNaN(d.getTime()))return false;
+  var di=dateInputToDate(desde,false),hf=dateInputToDate(hasta,true);
+  if(di&&d<di)return false;
+  if(hf&&d>hf)return false;
+  return true;
+}
+function pedidoVendidoParaStock(p){return p&&['entregado','finalizado'].indexOf(p.estado)>=0;}
+function keyItemStock(it){return String(it.artId||it.cod||it.codArt||it.desc||'').trim();}
+function cantidadDevueltaItem(p,it){
+  var devs=p.devoluciones||[];
+  var k=keyItemStock(it);
+  var total=0;
+  devs.forEach(function(d){
+    var kd=keyItemStock(d);
+    var mismo=(k&&kd&&k===kd)||((d.cod&&it.cod&&String(d.cod)===String(it.cod)))||(normTxt(d.desc||'')&&normTxt(d.desc||'')===normTxt(it.desc||''));
+    if(mismo)total+=parseFloat(d.cantDev||d.cantidad||0)||0;
+  });
+  return total;
+}
+function generarResumenUnidadesVendidas(pedidos,desde,hasta,preventistaId){
+  var agg={};
+  var detalle=[];
+  var ps=(pedidos||[]).filter(function(p){
+    return pedidoVendidoParaStock(p)&&pedidoEnRangoStock(p,desde,hasta)&&(!preventistaId||p.preventistaId===preventistaId);
+  });
+  ps.forEach(function(p){
+    (p.itemsFinales||p.items||[]).forEach(function(it){
+      var enviada=parseFloat(it.cantFinal!==undefined?it.cantFinal:it.cant)||0;
+      var dev=cantidadDevueltaItem(p,it);
+      var vendida=Math.max(0,enviada-dev);
+      if(vendida<=0)return;
+      var k=keyItemStock(it)||normTxt(it.desc||'sin_codigo');
+      if(!agg[k])agg[k]={
+        codigo:it.cod||'',codigoArticulo:it.codArt||'',articuloId:it.artId||'',descripcion:it.desc||'',
+        unidades:0,pedidos:{},monto:0
+      };
+      agg[k].unidades+=vendida;
+      agg[k].pedidos[p.nPedido]=true;
+      agg[k].monto+=vendida*(parseFloat(it.pu)||0)*(1-((parseFloat(it.descPct)||0)/100));
+      detalle.push({
+        'N° Pedido':p.nPedido,
+        'Fecha entrega':p.fechaEntregado||p.fechaPreparado||p.fecha||'',
+        'Preventista':p.preventistaNombre||'',
+        'Cliente':((p.cliente&&((p.cliente.nombre||'')+' '+(p.cliente.apellido||'')))||'').trim(),
+        'Código propio':it.cod||'',
+        'Código artículo':it.codArt||'',
+        'Artículo':it.desc||'',
+        'Unidades enviadas':enviada,
+        'Unidades devueltas':dev,
+        'Unidades vendidas':vendida,
+        'Precio unitario':parseFloat(it.pu)||0,
+        'Subtotal vendido':vendida*(parseFloat(it.pu)||0)*(1-((parseFloat(it.descPct)||0)/100))
+      });
+    });
+  });
+  var resumen=Object.keys(agg).map(function(k){var a=agg[k];return {
+    'Código propio':a.codigo,
+    'Código artículo':a.codigoArticulo,
+    'Artículo':a.descripcion,
+    'Unidades vendidas':a.unidades,
+    'Pedidos':Object.keys(a.pedidos).length,
+    'Monto vendido':a.monto
+  };}).sort(function(a,b){return String(a['Artículo']).localeCompare(String(b['Artículo']),'es');});
+  var zona=resumen.map(function(r){return {
+    'CODIGO_PROPIO':r['Código propio'],
+    'DESCRIPCION':r['Artículo'],
+    'UNIDADES_VENDIDAS':r['Unidades vendidas']
+  };});
+  return {resumen:resumen,detalle:detalle,zona:zona,pedidos:ps.length};
 }
 
 /* ═══════════════════════════
@@ -1295,6 +1536,7 @@ function Sidebar(props){
       nav('dashboard','📊','Dashboard'),
       (isPrev||isAdminOrCo||isPrep)&&E('div',{className:'sb-section'},'Pedidos'),
       (isPrev||isAdminOrCo)&&nav('nuevo-pedido','🛒','Nuevo Pedido'),
+      isPrev&&nav('ofertas','🔥','Ofertas Relámpago'),
       isPrev&&nav('mis-pedidos','📦','Mis Pedidos',preparadoCount),
       isPrev&&nav('mapa-gps','🗺️','Mi Recorrido GPS'),
       isPrev&&nav('clientes','👥','Clientes'),
@@ -1306,6 +1548,7 @@ function Sidebar(props){
       isAdminOrCo&&nav('mapa-admin','🗺️','Mapa Preventistas'),
       isAdminOrCo&&nav('auditoria','🧭','Auditoría Recorridos'),
       isAdminOrCo&&nav('objetivos','🎯','Objetivos Preventistas'),
+      isAdminOrCo&&nav('ofertas','🔥','Ofertas Relámpago'),
       (!isPrev&&(isAdminOrCo||canClientes(user)!=='none'))&&nav('clientes','👥','Clientes'),
       isAdminOrCo&&nav('articulos','📦','Artículos'),
       isAdminOrCo&&nav('cuentas-corrientes','💳','Cuentas Corrientes'),
@@ -1524,7 +1767,7 @@ function Dashboard(props){
               (isAdminOrCo||isPrep)&&E('td',null,p.preventistaNombre),
               E('td',null,E('strong',{style:{color:'var(--blue)'}},'$'+$(p.total))),
               E('td',null,E('span',{className:'st '+p.estado},estadoLabel(p.estado))),
-              E('td',null,String(p.fecha||'').split(',')[0])
+              E('td',null,fechaSolo(p.fecha))
             );
           })
         )
@@ -1550,10 +1793,12 @@ function NuevoPedido(props){
   var _i=useState(null),msg=_i[0],setMsg=_i[1];
   var _j=useState([]),serverArtsPedido=_j[0],setServerArtsPedido=_j[1];
   var _k=useState(false),searchingPedido=_k[0],setSearchingPedido=_k[1];
+  var _ofp=useState([]),ofertasPedido=_ofp[0],setOfertasPedido=_ofp[1];
 
   useEffect(function(){
     dbGet('articulos').then(function(rows){if(rows)setArts(rows.map(dbToArt).filter(function(a){return a.estado==='activo';}));});
     dbGet('clientes').then(function(rows){if(rows)setClis(rows.map(dbToCli).filter(function(c){return c.estado==='activo';}));});
+    dbGet('ofertas_preventistas').then(function(rows){if(rows)setOfertasPedido((Array.isArray(rows)?rows:[]).map(dbToOferta).filter(function(o){return ofertaVigente(o);}));}).catch(function(){});
   },[]);
 
   useEffect(function(){
@@ -1578,9 +1823,15 @@ function NuevoPedido(props){
   var total=sub-descAmt;
 
   function addArt(a){
+    var pp=precioPedidoConOferta(a,ofertasPedido);
+    var of=pp.oferta;
     var idx=items.findIndex(function(i){return i.artId===a.id;});
     if(idx>=0){var u=items.slice();u[idx]=Object.assign({},u[idx],{cant:u[idx].cant+1});setItems(u);}
-    else setItems(items.concat([{artId:a.id,cod:a.cod,codArt:a.codArt,desc:a.desc,cant:1,pu:artPrecioPublicoUnit(a),costo:artCostoUnitFromArt(a),precioPublico:artPrecioPublicoUnit(a),descPct:0}]));
+    else setItems(items.concat([{
+      artId:a.id,cod:a.cod,codArt:a.codArt,desc:a.desc,cant:1,
+      pu:pp.precio,costo:artCostoUnitFromArt(a),precioPublico:artPrecioPublicoUnit(a),descPct:0,
+      ofertaId:of?of.id:null,precioOferta:of?of.precioOferta:null,ofertaAplicada:!!of,precioRegularOferta:of?of.precioRegular:null
+    }]));
   }
   function updItem(idx,k,v){
     var u=items.slice();u[idx]=Object.assign({},u[idx]);
@@ -1691,7 +1942,10 @@ function NuevoPedido(props){
               E('div',{className:'art-list-code'},a.cod+(a.codArt?' · '+a.codArt:'')),
               E('div',{className:'art-list-name'},a.desc)
             ),
-            E('div',{className:'art-list-price'},'$'+$(artPrecioPublicoUnit(a))),
+            (function(){var of=ofertaActivaParaArticulo(ofertasPedido,a);return E('div',{className:'art-list-price'},
+              of?E('span',{className:'offer-inline-price'},'🔥 $'+$(of.precioOferta)):('$'+$(artPrecioPublicoUnit(a))),
+              of&&E('small',null,'Lista $'+$(artPrecioPublicoUnit(a)))
+            );})(),
             E('div',{className:'art-list-add'},'+ Agregar')
           );
         })
@@ -1710,9 +1964,9 @@ function NuevoPedido(props){
               var lineDesc=it.descPct||0;
               var lineSub=it.cant*it.pu*(1-lineDesc/100);
               return E('tr',{key:i},
-                E('td',null,E('div',{style:{fontWeight:600,fontSize:13}},it.desc),E('div',{style:{fontSize:10,color:'var(--txt2)'}},it.cod)),
+                E('td',null,E('div',{style:{fontWeight:600,fontSize:13}},it.desc),it.ofertaAplicada&&E('div',{className:'offer-applied-badge'},'🔥 Oferta Relámpago aplicada'),E('div',{style:{fontSize:10,color:'var(--txt2)'}},it.cod)),
                 E('td',null,E('input',{className:'fi sm qty',type:'number',min:1,value:it.cant,onChange:function(e){updItem(i,'cant',e.target.value);}})),
-                E('td',null,E('div',null,'$'+$(it.pu)),lineDesc>0&&E('div',{style:{fontSize:10,color:'var(--red)'}},'-'+lineDesc+'%')),
+                E('td',null,E('div',null,'$'+$(it.pu)),it.ofertaAplicada&&it.precioPublico&&E('del',{style:{display:'block',fontSize:10,color:'var(--txt2)'}},'$'+$(it.precioPublico)),lineDesc>0&&E('div',{style:{fontSize:10,color:'var(--red)'}},'-'+lineDesc+'%')),
                 maxDesc>0&&E('td',null,E('input',{className:'fi sm qty',type:'number',min:0,max:maxDesc,step:0.5,
                   value:lineDesc,onChange:function(e){updItem(i,'descPct',e.target.value);},
                   style:{width:52,background:lineDesc>0?'#fef3c7':''},placeholder:'0'})),
@@ -2324,7 +2578,7 @@ function ColaPreparacion(props){
   function pedRow(p,btns){
     return E('tr',{key:p.id},
       E('td',null,E('strong',null,'#'+p.nPedido)),
-      E('td',null,p.fecha?(p.fecha.split(', ')[1]||p.fecha):'—'),
+      E('td',null,p.fecha?(horaSolo(p.fecha)):'—'),
       E('td',null,p.preventistaNombre),
       E('td',null,E('div',null,p.cliente.nombreFantasia||p.cliente.nombre+' '+p.cliente.apellido),E('div',{style:{fontSize:10,color:'var(--txt2)'}},p.cliente.dir)),
       E('td',null,'$'+$(p.total)),
@@ -2462,7 +2716,7 @@ function ColaPreparacion(props){
           var lineSub=(it.cantFinal||0)*it.pu*(1-lineDesc/100);
           return E('tr',{key:i,style:{background:bg}},
             E('td',null,E('span',{style:{padding:'2px 7px',borderRadius:10,fontSize:10,fontWeight:700,background:badge.b,color:badge.t}},badge.l)),
-            E('td',null,E('div',{style:{fontWeight:600,fontSize:13}},it.desc),E('div',{style:{fontSize:10,color:'var(--txt2)'}},it.cod)),
+            E('td',null,E('div',{style:{fontWeight:600,fontSize:13}},it.desc),it.ofertaAplicada&&E('div',{className:'offer-applied-badge'},'🔥 Oferta Relámpago aplicada'),E('div',{style:{fontSize:10,color:'var(--txt2)'}},it.cod)),
             E('td',null,it.tipo==='agregado'?'—':it.cant),
             E('td',null,E('input',{type:'number',min:0,max:it.tipo==='agregado'?999:it.cant,value:it.cantFinal,
               onChange:function(e){setIF(i,'cantFinal',e.target.value);},
@@ -2714,6 +2968,9 @@ function TodosPedidos(props){
   var _bulk=useState(false),bulkDeleteOpen=_bulk[0],setBulkDeleteOpen=_bulk[1];
   var _bh=useState(''),bulkHasta=_bh[0],setBulkHasta=_bh[1];
   var _bc=useState(''),bulkCode=_bc[0],setBulkCode=_bc[1];
+  var _sd=useState(toInputDateLocal(new Date())),stockDesde=_sd[0],setStockDesde=_sd[1];
+  var _sh=useState(toInputDateLocal(new Date())),stockHasta=_sh[0],setStockHasta=_sh[1];
+  var _sr=useState(null),stockReport=_sr[0],setStockReport=_sr[1];
 
   function reloadPeds(){dbGet('pedidos').then(function(rows){if(rows)setPedidos(rows.map(dbToPed));});}
   useEffect(function(){reloadPeds();var iv=setInterval(reloadPeds,8000);return function(){clearInterval(iv);};},[]);
@@ -2808,6 +3065,33 @@ function TodosPedidos(props){
     };})}],'pedidos_alista.xlsx');
   }
 
+  function exportarUnidadesVendidas(){
+    if(!isAdminOrCo){flash('err','Solo Administrador o Co-Administrador puede exportar el resumen de stock.');return;}
+    var rep=generarResumenUnidadesVendidas(pedidos,stockDesde,stockHasta,filtPrev);
+    if(rep.resumen.length===0){flash('warn','No hay unidades vendidas en ese rango. Solo se cuentan pedidos entregados/finalizados, descontando devoluciones.');return;}
+    var nombre='unidades_vendidas_'+(stockDesde||'desde')+'_a_'+(stockHasta||'hasta')+'.xlsx';
+    exportXLSX([
+      {name:'Para Zona de Precios',rows:rep.zona},
+      {name:'Resumen',rows:rep.resumen},
+      {name:'Detalle pedidos',rows:rep.detalle},
+      {name:'Información',rows:[{
+        'Desde':stockDesde||'',
+        'Hasta':stockHasta||'',
+        'Preventista':filtPrev?(users.find(function(u){return u.id===filtPrev;})||{}).nombre||filtPrev:'Todos',
+        'Pedidos incluidos':rep.pedidos,
+        'Criterio':'Solo pedidos Entregados/Finalizados. Cantidad = enviada/preparada menos devoluciones registradas.'
+      }]}
+    ],nombre);
+    flash('ok','Resumen exportado. Usá la hoja "Para Zona de Precios" para descontar stock.');
+  }
+
+  function verUnidadesVendidasPantalla(){
+    if(!isAdminOrCo){flash('err','Solo Administrador o Co-Administrador puede ver el resumen de stock.');return;}
+    var rep=generarResumenUnidadesVendidas(pedidos,stockDesde,stockHasta,filtPrev);
+    setStockReport(rep);
+    if(rep.resumen.length===0){flash('warn','No hay unidades vendidas en ese rango. Solo se cuentan pedidos entregados/finalizados, descontando devoluciones.');}
+  }
+
   var estados=['pendiente','preparado','listo_entrega','en_transito','entregado','finalizado','cancelado'];
   var bulkSelected=pedidosSeleccionadosParaBorrar();
 
@@ -2817,11 +3101,21 @@ function TodosPedidos(props){
         E('div',{className:'card-title'},'📋 Todos los Pedidos'),
         E('div',{className:'brow'},
           isAdminOrCo&&E('button',{className:'btn warn',onClick:abrirEliminarPruebas},'🧹 Eliminar pruebas'),
+          isAdminOrCo&&E('button',{className:'btn',onClick:verUnidadesVendidasPantalla},'👁️ Ver unidades vendidas'),
+          isAdminOrCo&&E('button',{className:'btn ok',onClick:exportarUnidadesVendidas},'📦 Excel unidades vendidas'),
           E('button',{className:'btn',onClick:exportar},'📊 Excel')
         )
       ),
       E('div',{style:{display:'flex',gap:10,flexWrap:'wrap',marginBottom:14}},
         E('input',{className:'sinput',placeholder:'N°, cliente, preventista…',value:q,onChange:function(e){setQ(e.target.value);}}),
+        isAdminOrCo&&E('div',{style:{display:'flex',alignItems:'center',gap:6,fontSize:12,color:'var(--txt2)'}},
+          E('span',null,'Stock desde'),
+          E('input',{className:'fi',style:{width:145},type:'date',value:stockDesde,onChange:function(e){setStockDesde(e.target.value);}})
+        ),
+        isAdminOrCo&&E('div',{style:{display:'flex',alignItems:'center',gap:6,fontSize:12,color:'var(--txt2)'}},
+          E('span',null,'hasta'),
+          E('input',{className:'fi',style:{width:145},type:'date',value:stockHasta,onChange:function(e){setStockHasta(e.target.value);}})
+        ),
         E('select',{className:'fi',style:{width:'auto'},value:filtEstado,onChange:function(e){setFiltEstado(e.target.value);}},
           E('option',{value:''},'Todos los estados'),
           estados.map(function(s){return E('option',{key:s,value:s},estadoLabel(s));})
@@ -2843,7 +3137,7 @@ function TodosPedidos(props){
           filtered.map(function(p){
             return E('tr',{key:p.id},
               E('td',null,E('strong',null,'#'+p.nPedido)),
-              E('td',null,p.fecha.split(',')[0]),
+              E('td',null,fechaSolo(p.fecha)),
               E('td',null,p.preventistaNombre),
               E('td',null,p.cliente.nombre+' '+p.cliente.apellido),
               E('td',null,E('strong',{style:{color:'var(--blue)'}},'$'+$(p.total))),
@@ -2937,7 +3231,7 @@ function TodosPedidos(props){
         E('tbody',null,bulkSelected.length===0?E('tr',null,E('td',{colSpan:5,className:'empty'},'No hay pedidos dentro de ese rango.')):
           bulkSelected.map(function(p){return E('tr',{key:p.id},
             E('td',null,'#'+p.nPedido),
-            E('td',null,String(p.fecha||'').split(',')[0]),
+            E('td',null,fechaSolo(p.fecha)),
             E('td',null,(p.cliente&&((p.cliente.nombre||'')+' '+(p.cliente.apellido||'')))||'—'),
             E('td',null,estadoLabel(p.estado)),
             E('td',null,'$'+$(p.total))
@@ -2952,7 +3246,33 @@ function TodosPedidos(props){
     cancelPed&&E(CancelModal,{ped:cancelPed,user:adminUser,
       onConfirm:handleCancelar,onClose:function(){setCancelPed(null);}}),
     boletaModal&&E(BoletaModal,{ped:boletaModal,onClose:function(){setBoletaModal(null);}}),
-    descuentoModal&&E(PedidoDescuentoModal,{ped:descuentoModal,user:user,onClose:function(){setDescuentoModal(null);},onSaved:function(upd){reloadPeds();setDescuentoModal(null);setDetalle(upd);flash('ok','Descuentos guardados en el pedido #'+upd.nPedido+'.');}})
+    descuentoModal&&E(PedidoDescuentoModal,{ped:descuentoModal,user:user,onClose:function(){setDescuentoModal(null);},onSaved:function(upd){reloadPeds();setDescuentoModal(null);setDetalle(upd);flash('ok','Descuentos guardados en el pedido #'+upd.nPedido+'.');}}),
+    stockReport&&E(Modal,{title:'📦 Unidades vendidas para stock',xl:true,onClose:function(){setStockReport(null);}},
+      E('div',{className:'modal-body'},
+        E('div',{className:'alert info',style:{marginBottom:12}},
+          E('span',null,'Rango: '+(stockDesde||'—')+' a '+(stockHasta||'—')+' · Pedidos incluidos: '+stockReport.pedidos+' · Solo entregados/finalizados, descontando devoluciones.')
+        ),
+        E('div',{className:'brow',style:{justifyContent:'flex-end',marginBottom:10}},
+          E('button',{className:'btn ok',onClick:exportarUnidadesVendidas},'📦 Exportar Excel')
+        ),
+        stockReport.resumen.length===0?E('div',{className:'empty'},'No hay unidades vendidas en ese rango.'):E('div',{className:'tw'},E('table',null,
+          E('thead',null,E('tr',null,
+            E('th',null,'Código propio'),
+            E('th',null,'Descripción'),
+            E('th',null,'Unidades vendidas'),
+            E('th',null,'Pedidos'),
+            E('th',null,'Monto vendido')
+          )),
+          E('tbody',null,stockReport.resumen.map(function(r,i){return E('tr',{key:i},
+            E('td',null,r['Código propio']||'—'),
+            E('td',null,r['Artículo']||'—'),
+            E('td',null,E('strong',null,r['Unidades vendidas'])),
+            E('td',null,r['Pedidos']),
+            E('td',null,'$'+$(r['Monto vendido']||0))
+          );}))
+        ))
+      )
+    )
   );
 }
 
@@ -3059,8 +3379,10 @@ function Articulos(props){
   function doImport(e){
     var file=e.target.files[0];if(!file)return;
     e.target.value='';
-    var ok=confirm('¿Reemplazar TODOS los artículos con los del archivo nuevo?\n\nAceptar = borra los actuales y carga los nuevos\nCancelar = no hace nada');
+    var ok=confirm('¿Reemplazar TODOS los artículos con los del archivo nuevo?\n\nAceptar = borra los artículos actuales y carga los nuevos.\nCancelar = no hace nada.');
     if(!ok)return;
+
+    var desactivarOfertas=confirm('Recomendado: al actualizar la lista de precios, las ofertas relámpago actuales pueden quedar con precios viejos.\n\n¿Querés DESACTIVAR las ofertas relámpago actuales para revisarlas después?\n\nAceptar = sí, pausar ofertas relámpago actuales.\nCancelar = conservar ofertas relámpago activas.');
 
     cargarXLSX(function(err){
       if(err){flash('err',err.message);return;}
@@ -3124,8 +3446,13 @@ function Articulos(props){
           }
 
           setDiag({filas:rows.length,validas:nuevos.length,sinCodigo:saltadasSinCodigo,sinDesc:saltadasSinDesc,duplicadas:duplicadas,coca:contieneCoca,ejemplos:ejemplosCoca,muestrasPrecio:muestrasPrecio,preciosSospechosos:preciosSospechosos,autoCorrigioPrecios:autoCorrigioPrecios});
-          flash('ok','Borrando artículos anteriores…');
-          dbDeleteAllArticulos()
+          flash('ok',desactivarOfertas?'Desactivando ofertas relámpago y borrando artículos anteriores…':'Borrando artículos anteriores…');
+          (desactivarOfertas?dbDesactivarOfertasActivasPorImportacion():Promise.resolve({ok:true,count:0}))
+            .then(function(resOferta){
+              if(desactivarOfertas&&resOferta&&resOferta.ok){flash('ok','Ofertas relámpago pausadas: '+(resOferta.count||0)+'. Ahora actualizo artículos…');}
+              else if(desactivarOfertas){flash('warn','No pude pausar ofertas relámpago automáticamente. Revisalas manualmente después de importar.');}
+              return dbDeleteAllArticulos();
+            })
             .then(function(){
               flash('ok','Cargando '+nuevos.length+' artículos en tandas…');
               return dbInsertArticulosBatch(nuevos,function(done,total){flash('ok','Cargando artículos… '+done+' de '+total);});
@@ -3134,7 +3461,8 @@ function Articulos(props){
               reload();
               var extra=contieneCoca>0?' · En el Excel detecté '+contieneCoca+' filas con COCA/COC.':' · No detecté filas con COCA/COC en el Excel.';
               var extraPrecio=autoCorrigioPrecios?' · También corregí precios invertidos.':'';
-              flash('ok','✓ '+nuevos.length+' artículos cargados correctamente.'+extra+extraPrecio);
+              var extraOfertas=desactivarOfertas?' · Ofertas relámpago actuales pausadas para revisión.':' · Ofertas relámpago actuales conservadas.';
+              flash('ok','✓ '+nuevos.length+' artículos cargados correctamente.'+extra+extraPrecio+extraOfertas);
             })
             .catch(function(e){flash('err','Error al importar: '+(e.message||e));});
         }catch(err2){flash('err','Error al leer el archivo: '+err2.message);}
@@ -3539,7 +3867,7 @@ function Estadisticas(){
 
   // By day
   var byDay={};
-  finalizados.forEach(function(p){var d=p.fecha.split(',')[0].trim();byDay[d]=(byDay[d]||0)+p.total;});
+  finalizados.forEach(function(p){var d=fechaSolo(p.fecha).trim();byDay[d]=(byDay[d]||0)+p.total;});
   var dayData=Object.entries(byDay).map(function(kv){return {l:kv[0].slice(0,5),v:kv[1]};}).slice(-12);
 
   // By preventista
@@ -3599,7 +3927,7 @@ function Estadisticas(){
         E('tbody',null,filtered.filter(function(p){return p.estado==='cancelado';}).map(function(p){
           return E('tr',{key:p.id},
             E('td',null,'#'+p.nPedido),
-            E('td',null,p.fecha?p.fecha.split(',')[0]:'—'),
+            E('td',null,p.fecha?fechaSolo(p.fecha):'—'),
             E('td',null,p.preventistaNombre),
             E('td',null,p.cliente.nombre+' '+p.cliente.apellido),
             E('td',null,p.canceladoMotivo||'—'),
@@ -3979,6 +4307,7 @@ function BottomNav(props){
   if(isPrev) return E('div',{className:'bottom-nav'},
     item('dashboard','📊','Inicio'),
     item('nuevo-pedido','🛒','Pedido'),
+    item('ofertas','🔥','Ofertas Relámpago'),
     item('mis-pedidos','📦','Mis Pedidos',readyCount),
     item('clientes','👥','Clientes'),
     item('mapa-gps','🗺️','GPS')
@@ -3996,6 +4325,7 @@ function BottomNav(props){
     item('nuevo-pedido','🛒','Pedido'),
     item('cola-prep','⚙️','Preparar',pendCount),
     item('todos-pedidos','📋','Pedidos'),
+    item('ofertas','🔥','Ofertas Relámpago'),
     item('auditoria','🧭','Auditoría')
   );
 
@@ -4003,6 +4333,247 @@ function BottomNav(props){
 }
 
 
+
+
+/* ═══════════════════════════
+   OFERTAS RELAMPAGO + FLYER A4
+═══════════════════════════ */
+function OfertasPreventistas(props){
+  var user=props.user;
+  var isAdminOrCo=user.role==='admin'||user.role==='coadmin';
+  var isPrev=user.role==='preventista';
+  var _of=useState([]),ofertas=_of[0],setOfertas=_of[1];
+  var _arts=useState([]),arts=_arts[0],setArts=_arts[1];
+  var _q=useState(''),q=_q[0],setQ=_q[1];
+  var _sel=useState(null),sel=_sel[0],setSel=_sel[1];
+  var _msg=useState(null),msg=_msg[0],setMsg=_msg[1];
+  var _ids=useState([]),selectedIds=_ids[0],setSelectedIds=_ids[1];
+  var _mode=useState('catalogo'),flyerMode=_mode[0],setFlyerMode=_mode[1];
+  var flyerRef=useRef(null);
+  var hoy=(new Date()).toISOString().slice(0,10);
+  var _f=useState({precioOferta:'',precioAnterior:'',mostrarPrecioAnterior:true,fechaDesde:hoy,fechaHasta:'',mostrarVigencia:true,stockInfo:'',observacion:'',fotoUrl:'',mostrarFlyer:true,ordenFlyer:0}),form=_f[0],setForm=_f[1];
+
+  if(!(isAdminOrCo||isPrev))return E('div',{className:'empty'},'Módulo no disponible para tu rol.');
+
+  function flash(t,m){setMsg({t:t,m:m});setTimeout(function(){setMsg(null);},4500);}
+  function set(k,v){setForm(Object.assign({},form,{[k]:v}));}
+  function cargar(){
+    dbGet('ofertas_preventistas').then(function(rows){
+      setOfertas((Array.isArray(rows)?rows:[]).map(dbToOferta));
+    }).catch(function(e){flash('err','No se pudieron cargar ofertas relámpago. Ejecutá el SQL V29 de ofertas/flyer si todavía no lo hiciste.');});
+    if(isAdminOrCo){
+      dbGet('articulos').then(function(rows){
+        setArts((Array.isArray(rows)?rows:[]).map(dbToArt).filter(function(a){return a.estado!=='inactivo';}));
+      }).catch(function(){});
+    }
+  }
+  useEffect(function(){cargar();},[]);
+
+  var buscados=arts.map(function(a){return {a:a,s:artScore(a,q)};})
+    .filter(function(x){return !q||!q.trim()||x.s>0;})
+    .sort(function(x,y){return (y.s-x.s)||String(x.a.desc||'').localeCompare(String(y.a.desc||''),'es');})
+    .slice(0,12).map(function(x){return x.a;});
+
+  function elegirArticulo(a){
+    setSel(a);
+    setForm(Object.assign({},form,{precioOferta:a.precio||0,precioAnterior:a.precio||0}));
+  }
+  function onFoto(e){
+    var file=e.target.files&&e.target.files[0];
+    if(!file)return;
+    fileToCompressedDataUrl(file,900,0.78).then(function(data){set('fotoUrl',data);})
+      .catch(function(err){flash('err',err.message||'No se pudo cargar la foto.');});
+  }
+  function guardar(){
+    if(!isAdminOrCo){flash('err','Solo Admin o Co-Admin puede crear ofertas relámpago.');return;}
+    if(!sel){flash('err','Elegí un artículo del catálogo.');return;}
+    if(!form.precioOferta||parseFloat(form.precioOferta)<=0){flash('err','Cargá un precio de oferta relámpago válido.');return;}
+    if((parseFloat(form.precioOferta)||0)<(parseFloat(sel.costo)||0)){flash('err','El precio de oferta no puede quedar por debajo del precio de costo.');return;}
+    if(!form.fechaDesde){flash('err','Completá la fecha desde.');return;}
+    if(form.fechaHasta&&form.fechaHasta<form.fechaDesde){flash('err','La fecha hasta no puede ser menor que desde.');return;}
+    var row=ofertaToDb({
+      id:'of_'+sel.id,
+      articuloId:sel.id,
+      cod:sel.cod,
+      codArt:sel.codArt,
+      descripcion:sel.desc,
+      precioRegular:(form.mostrarPrecioAnterior?parseFloat(form.precioAnterior||sel.precio||0):(sel.precio||0)),
+      precioOferta:form.precioOferta,
+      costo:sel.costo||0,
+      fechaDesde:form.fechaDesde,
+      fechaHasta:form.fechaHasta||null,
+      stockInfo:form.stockInfo,
+      observacion:form.observacion,
+      fotoUrl:form.fotoUrl||'',
+      mostrarFlyer:form.mostrarFlyer!==false,
+      mostrarPrecioAnterior:form.mostrarPrecioAnterior!==false,
+      mostrarVigencia:form.mostrarVigencia!==false,
+      ordenFlyer:form.ordenFlyer||0,
+      activo:true,
+      createdBy:user.id
+    });
+    dbUpsert('ofertas_preventistas',row).then(function(){
+      flash('ok','Oferta relámpago guardada. El precio se aplicará automáticamente al cargar el pedido.');
+      setSel(null);setQ('');
+      setForm({precioOferta:'',precioAnterior:'',mostrarPrecioAnterior:true,fechaDesde:hoy,fechaHasta:'',mostrarVigencia:true,stockInfo:'',observacion:'',fotoUrl:'',mostrarFlyer:true,ordenFlyer:0});
+      cargar();
+    }).catch(function(e){flash('err','No se pudo guardar: '+e.message);});
+  }
+  function cambiarEstado(o,activo){
+    dbUpdate('ofertas_preventistas',o.id,{activo:activo}).then(function(){flash('ok',activo?'Oferta relámpago reactivada.':'Oferta relámpago desactivada.');cargar();})
+      .catch(function(){flash('err','No se pudo actualizar la oferta relámpago.');});
+  }
+  function borrar(o){
+    if(!confirm('¿Eliminar definitivamente la oferta relámpago de '+o.descripcion+'?'))return;
+    dbDelete('ofertas_preventistas',o.id).then(function(){flash('ok','Oferta relámpago eliminada.');cargar();})
+      .catch(function(){flash('err','No se pudo eliminar.');});
+  }
+  function toggleSelect(id){
+    setSelectedIds(selectedIds.indexOf(id)>=0?selectedIds.filter(function(x){return x!==id;}):selectedIds.concat([id]));
+  }
+
+  var visibles=isAdminOrCo?ofertas:ofertas.filter(function(o){return ofertaVigente(o,hoy);});
+  visibles=visibles.slice().sort(function(a,b){
+    var av=ofertaVigente(a,hoy)?0:1,bv=ofertaVigente(b,hoy)?0:1;
+    return (av-bv)||((a.ordenFlyer||0)-(b.ordenFlyer||0))||String(a.descripcion||'').localeCompare(String(b.descripcion||''),'es');
+  });
+  var vigentes=visibles.filter(function(o){return ofertaVigente(o,hoy)&&o.mostrarFlyer!==false;});
+  var flyerOfertas=vigentes;
+  if(flyerMode==='seleccion')flyerOfertas=vigentes.filter(function(o){return selectedIds.indexOf(o.id)>=0;});
+  if(flyerMode==='destacado')flyerOfertas=vigentes.filter(function(o){return selectedIds.indexOf(o.id)>=0;}).slice(0,1);
+  if(flyerMode==='destacado'&&flyerOfertas.length===0&&vigentes[0])flyerOfertas=[vigentes[0]];
+
+  function chunks(arr,n){var out=[];for(var i=0;i<arr.length;i+=n)out.push(arr.slice(i,i+n));return out;}
+  function printFlyer(){
+    document.body.classList.add('print-flyer-mode');
+    setTimeout(function(){window.print();setTimeout(function(){document.body.classList.remove('print-flyer-mode');},400);},80);
+  }
+  function exportFlyerImg(){
+    if(!window.html2canvas){flash('err','No se pudo cargar html2canvas para exportar imagen.');return;}
+    if(!flyerRef.current){flash('err','No hay flyer para exportar.');return;}
+    flash('ok','Generando imagen…');
+    window.html2canvas(flyerRef.current,{scale:2,backgroundColor:'#ffffff',useCORS:true}).then(function(canvas){
+      descargarDataUrl(canvas.toDataURL('image/png'),'Oferta_Relampago_ALISTA_AHORRO.png');
+    }).catch(function(e){flash('err','No se pudo generar imagen: '+e.message);});
+  }
+
+  function ofertaCard(o){
+    var vig=ofertaVigente(o,hoy);
+    return E('div',{key:o.id,className:'offer-card '+(vig?'':'off')},
+      isAdminOrCo&&E('label',{className:'offer-select'},
+        E('input',{type:'checkbox',checked:selectedIds.indexOf(o.id)>=0,onChange:function(){toggleSelect(o.id);}}),' Usar en flyer seleccionado'
+      ),
+      o.fotoUrl&&E('img',{className:'offer-thumb',src:o.fotoUrl,alt:o.descripcion||'Oferta'}),
+      E('div',{className:'offer-top'},
+        E('div',null,
+          E('div',{className:'offer-title'},o.descripcion||'Artículo sin descripción'),
+          E('div',{className:'offer-code'},'Código: '+(o.cod||'—')+(o.codArt?' · '+o.codArt:''))
+        ),
+        E('span',{className:'pill '+(vig?'ok':'bad')},vig?'vigente':'no vigente')
+      ),
+      E('div',{className:'offer-prices'},
+        o.mostrarPrecioAnterior!==false&&E('div',null,E('small',null,'Precio anterior'),E('del',null,'$'+$(o.precioRegular))),
+        E('div',null,E('small',null,'Oferta Relámpago'),E('strong',null,'$'+$(o.precioOferta)))
+      ),
+      E('div',{className:'offer-meta'},
+        o.mostrarVigencia!==false&&E('span',null,'Desde: '+(o.fechaDesde||'—')),
+        o.mostrarVigencia!==false&&E('span',null,'Hasta: '+(o.fechaHasta||'sin fecha'))
+      ),
+      o.stockInfo&&E('div',{className:'offer-note'},'Stock / condición: '+o.stockInfo),
+      o.observacion&&E('div',{className:'offer-note'},'Obs.: '+o.observacion),
+      isAdminOrCo&&E('div',{className:'brow',style:{marginTop:10}},
+        E('button',{className:'btn sm '+(o.activo===false?'ok':'warn'),onClick:function(){cambiarEstado(o,o.activo===false);}},o.activo===false?'Reactivar':'Desactivar'),
+        E('button',{className:'btn sm dan',onClick:function(){borrar(o);}},'Eliminar')
+      )
+    );
+  }
+  function flyerItem(o,big){
+    return E('div',{className:big?'flyer-product featured':'flyer-product'},
+      E('div',{className:'flyer-img-wrap'},o.fotoUrl?E('img',{src:o.fotoUrl,alt:o.descripcion||'Oferta'}):E('div',{className:'flyer-no-img'},'SIN FOTO')),
+      E('div',{className:'flyer-prod-name'},o.descripcion||'Producto'),
+      E('div',{className:'flyer-code'},'Código: '+(o.cod||'—')),
+      o.mostrarPrecioAnterior!==false&&o.precioRegular>0&&E('div',{className:'flyer-prev'},'Antes $'+$(o.precioRegular)),
+      E('div',{className:'flyer-price'},'$'+$(o.precioOferta)),
+      o.mostrarVigencia!==false&&E('div',{className:'flyer-valid'},o.fechaHasta?'Válido hasta '+o.fechaHasta:'Oferta vigente')
+    );
+  }
+  function flyerHeader(){return E('div',{className:'flyer-header'},
+    E('img',{src:'assets/img/logo-alista-ahorro.png',alt:'ALISTA AHORRO'}),
+    E('div',{className:'flyer-title-wrap'},
+      E('div',{className:'flyer-title'},'OFERTA RELÁMPAGO'),
+      E('div',{className:'flyer-sub'},'Precios especiales por tiempo limitado')
+    )
+  );}
+  function flyerFooter(){return E('div',{className:'flyer-footer'},
+    E('span',null,'WhatsApp: '+BIZ.wa),
+    E('span',null,'Instagram: '+BIZ.instagram),
+    E('span',null,BIZ.dir)
+  );}
+  function flyerPreview(){
+    if(!flyerOfertas.length)return E('div',{className:'empty'},'No hay ofertas relámpago vigentes para armar el flyer.');
+    if(flyerMode==='destacado')return E('div',{className:'flyer-a4 flyer-single'},flyerHeader(),E('div',{className:'flyer-single-body'},flyerItem(flyerOfertas[0],true)),flyerFooter());
+    return E('div',null,chunks(flyerOfertas,8).map(function(page,idx){return E('div',{key:idx,className:'flyer-a4'},
+      flyerHeader(),
+      E('div',{className:'flyer-grid-8'},page.map(function(o){return flyerItem(o,false);})),
+      flyerFooter()
+    );}));
+  }
+
+  return E('div',null,
+    msg&&E(Alert,{t:msg.t,msg:msg.m,onClose:function(){setMsg(null);}}),
+    isAdminOrCo&&E('div',{className:'card'},
+      E('div',{className:'card-hd'},
+        E('div',{className:'card-title'},'🔥 Crear oferta relámpago para preventistas'),
+        E('button',{className:'btn',onClick:cargar},'🔄 Actualizar')
+      ),
+      E('div',{className:'alert warn'},E('span',null,'El precio de oferta se aplica automáticamente cuando el preventista carga el producto en un pedido.')),
+      E('div',{className:'fg'},E('label',null,'Buscar artículo'),
+        E('input',{className:'fi',value:q,onChange:function(e){setQ(e.target.value);},placeholder:'Código o descripción…'})
+      ),
+      q&&E('div',{className:'offer-search-list'},buscados.length?buscados.map(function(a){return E('button',{key:a.id,className:'offer-search-item '+(sel&&sel.id===a.id?'on':''),onClick:function(){elegirArticulo(a);}},
+        E('span',null,a.desc),E('small',null,(a.cod||'')+' · Público $'+$(a.precio)+' · Costo $'+$(a.costo))
+      );}):E('div',{className:'empty',style:{padding:10}},'No hay coincidencias.')),
+      sel&&E('div',{className:'alert ok'},E('span',null,'Seleccionado: '+sel.desc+' · Código '+(sel.cod||'—')+' · Precio actual $'+$(sel.precio))),
+      E('div',{className:'grid2'},
+        E('div',{className:'fg'},E('label',null,'Precio oferta relámpago $'),E('input',{className:'fi',type:'number',min:0,value:form.precioOferta,onChange:function(e){set('precioOferta',e.target.value);}})),
+        E('div',{className:'fg'},E('label',null,'Precio anterior opcional $'),E('input',{className:'fi',type:'number',min:0,value:form.precioAnterior,onChange:function(e){set('precioAnterior',e.target.value);}})),
+        E('div',{className:'fg'},E('label',null,'Desde'),E('input',{className:'fi',type:'date',value:form.fechaDesde,onChange:function(e){set('fechaDesde',e.target.value);}})),
+        E('div',{className:'fg'},E('label',null,'Hasta opcional'),E('input',{className:'fi',type:'date',value:form.fechaHasta,onChange:function(e){set('fechaHasta',e.target.value);}})),
+        E('div',{className:'fg'},E('label',null,'Stock / condición opcional'),E('input',{className:'fi',value:form.stockInfo,onChange:function(e){set('stockInfo',e.target.value);},placeholder:'Ej: hasta agotar stock, mínimo 2 bultos…'})),
+        E('div',{className:'fg'},E('label',null,'Orden en flyer'),E('input',{className:'fi',type:'number',value:form.ordenFlyer,onChange:function(e){set('ordenFlyer',e.target.value);}}))
+      ),
+      E('div',{className:'grid2'},
+        E('label',{className:'checkline'},E('input',{type:'checkbox',checked:form.mostrarPrecioAnterior!==false,onChange:function(e){set('mostrarPrecioAnterior',e.target.checked);}}),' Mostrar precio anterior'),
+        E('label',{className:'checkline'},E('input',{type:'checkbox',checked:form.mostrarVigencia!==false,onChange:function(e){set('mostrarVigencia',e.target.checked);}}),' Mostrar vigencia'),
+        E('label',{className:'checkline'},E('input',{type:'checkbox',checked:form.mostrarFlyer!==false,onChange:function(e){set('mostrarFlyer',e.target.checked);}}),' Incluir en flyer')
+      ),
+      E('div',{className:'fg'},E('label',null,'Foto de la oferta opcional'),E('input',{className:'fi',type:'file',accept:'image/*',onChange:onFoto}),form.fotoUrl&&E('div',{className:'photo-preview'},E('img',{src:form.fotoUrl,alt:'Foto oferta'}),E('button',{className:'btn sm',onClick:function(){set('fotoUrl','');}},'Quitar foto'))),
+      E('div',{className:'fg'},E('label',null,'Observación opcional'),E('textarea',{className:'fi',rows:2,value:form.observacion,onChange:function(e){set('observacion',e.target.value);},placeholder:'Ej: ideal para ofrecer a clientes con alta rotación…'})),
+      E('button',{className:'btn pri',onClick:guardar},'💾 Guardar oferta relámpago')
+    ),
+    E('div',{className:'card'},
+      E('div',{className:'card-hd'},
+        E('div',{className:'card-title'},isAdminOrCo?'📋 Ofertas relámpago cargadas':'🔥 Ofertas relámpago disponibles para vender'),
+        E('button',{className:'btn',onClick:cargar},'🔄 Actualizar')
+      ),
+      !isAdminOrCo&&E('div',{className:'alert ok'},E('span',null,'Estas ofertas relámpago aplican automáticamente en el pedido si cargás el producto correspondiente.')),
+      E('div',{className:'offer-grid'},visibles.length?visibles.map(ofertaCard):E('div',{className:'empty'},isAdminOrCo?'Todavía no hay ofertas relámpago cargadas.':'No hay ofertas relámpago vigentes por ahora.'))
+    ),
+    E('div',{className:'card flyer-builder'},
+      E('div',{className:'card-hd'},
+        E('div',{className:'card-title'},'🧾 Catálogo / Flyer de Oferta Relámpago'),
+        E('div',{className:'brow'},E('button',{className:'btn',onClick:printFlyer},'🖨️ Imprimir'),E('button',{className:'btn ok',onClick:exportFlyerImg},'🖼️ Sacar imagen'))
+      ),
+      isAdminOrCo&&E('div',{className:'brow flyer-tools'},
+        E('button',{className:'btn '+(flyerMode==='catalogo'?'pri':''),onClick:function(){setFlyerMode('catalogo');}},'8 por página'),
+        E('button',{className:'btn '+(flyerMode==='seleccion'?'pri':''),onClick:function(){setFlyerMode('seleccion');}},'Solo elegidas'),
+        E('button',{className:'btn '+(flyerMode==='destacado'?'pri':''),onClick:function(){setFlyerMode('destacado');}},'Destacar 1')
+      ),
+      E('div',{className:'alert warn'},E('span',null,'Para flyer seleccionado o destacado, marcá las ofertas con el tilde "Usar en flyer seleccionado".')),
+      E('div',{className:'flyer-preview-wrap',ref:flyerRef},flyerPreview())
+    )
+  );
+}
 
 /* ═══════════════════════════
    OBJETIVOS PREVENTISTAS (Admin / CoAdmin)
@@ -4270,7 +4841,7 @@ function AuditoriaRecorridos(props){
           var obs=String(v.observaciones||'');
           var tipo=obs.indexOf('SE NEGÓ A PAGAR')>=0?'Negativa':(obs.indexOf('Pago recibido')>=0?'Cobro':'Visita');
           return E('tr',{key:v.id},
-            E('td',null,String(v.fecha||'').split(',')[1]||String(v.fecha||'')),
+            E('td',null,horaSolo(v.fecha)),
             E('td',null,v.preventista_nombre||preventistaNombre(v.preventista_id)),
             E('td',null,clienteName(v)),
             E('td',null,E('span',{className:'badge '+(tipo==='Negativa'?'off':'on')},tipo)),
@@ -4287,7 +4858,7 @@ function AuditoriaRecorridos(props){
         E('div',{className:'tw'},E('table',null,
           E('thead',null,E('tr',null,E('th',null,'Hora'),E('th',null,'Preventista'),E('th',null,'Cliente'),E('th',null,'Monto'),E('th',null,'Forma'))),
           E('tbody',null,cobros.length?cobros.map(function(m){return E('tr',{key:m.id},
-            E('td',null,String(m.fecha||'').split(',')[1]||String(m.fecha||'')),
+            E('td',null,horaSolo(m.fecha)),
             E('td',null,m.usuario_nombre||preventistaNombre(m.usuario_id)),
             E('td',null,m.cliente_nombre||'—'),
             E('td',null,E('strong',null,'$'+$(m.monto))),
@@ -4302,7 +4873,7 @@ function AuditoriaRecorridos(props){
           E('tbody',null,sinPedido.length?sinPedido.map(function(v){return E('tr',{key:v.id},
             E('td',null,clienteName(v)),
             E('td',null,v.preventista_nombre||preventistaNombre(v.preventista_id)),
-            E('td',null,String(v.fecha||'').split(',')[1]||String(v.fecha||'')),
+            E('td',null,horaSolo(v.fecha)),
             E('td',null,v.observaciones||'—')
           );}):E('tr',null,E('td',{colSpan:4,className:'empty'},'No hay visitas sin pedido para esta fecha.')))
         ))
@@ -4314,7 +4885,7 @@ function AuditoriaRecorridos(props){
 var MOD_TITLES={
   'dashboard':'Dashboard','nuevo-pedido':'Nuevo Pedido','mis-pedidos':'Mis Pedidos',
   'mapa-gps':'Mi Recorrido GPS','cola-prep':'Cola de Preparación',
-  'todos-pedidos':'Todos los Pedidos','mapa-admin':'Mapa de Preventistas','auditoria':'Auditoría Recorridos','objetivos':'Objetivos Preventistas',
+  'todos-pedidos':'Todos los Pedidos','mapa-admin':'Mapa de Preventistas','auditoria':'Auditoría Recorridos','objetivos':'Objetivos Preventistas','ofertas':'Ofertas Relámpago',
   'clientes':'Clientes','articulos':'Artículos','cuentas-corrientes':'Cuentas Corrientes',
   'estadisticas':'Estadísticas','comisiones':'Comisiones','usuarios':'Usuarios','configuracion':'Configuración'
 };
@@ -4350,6 +4921,7 @@ function App(){
     if(mod==='mapa-admin'&&isAdminOrCo)return E(MapaAdmin,null);
     if(mod==='auditoria'&&isAdminOrCo)return E(AuditoriaRecorridos,{user:user});
     if(mod==='objetivos'&&isAdminOrCo)return E(ObjetivosPreventistas,{user:user});
+    if(mod==='ofertas'&&(isPrev||isAdminOrCo))return E(OfertasPreventistas,{user:user});
     if(mod==='clientes')return E(Clientes,{user:user});
     if(mod==='articulos')return E(Articulos,{user:user});
     if(mod==='cuentas-corrientes'&&(isAdminOrCo||isPrev))return E(CuentasCorrientes,{user:user});

@@ -1,63 +1,22 @@
-# ALISTA AHORRO v24 — Modular + Bootstrap
+# ALISTA AHORRO V31 — Ofertas + resumen stock en pantalla
 
-Esta versión separa la app en varios archivos para dejar de trabajar con un único `index.html` gigante.
+Versión de prueba que mantiene Ofertas Relámpago, flyer A4, precio automático de oferta en pedidos y agrega vista en pantalla del resumen de unidades vendidas.
 
-## Estructura
+## Cambio V31
+- Botón **👁️ Ver unidades vendidas** en **Todos los Pedidos**.
+- El administrador puede revisar en pantalla el rango elegido antes de exportar.
+- El Excel para Zona de Precios sigue disponible.
 
-```text
-index.html
-assets/
-  css/app.css
-  js/config.js
-  js/config.example.js
-  js/vendor-check.js
-  js/app.js
-supabase/
-  sql/
-    alista_ahorro_v21_seguridad_supabase.sql
-    alista_ahorro_v21_vincular_usuarios_auth.sql
-    alista_ahorro_v23_fix_rls_preparador.sql
-SECURITY.md
-```
+## Cómo probar
+Subí la carpeta completa `prueba-v31-stock-en-pantalla` a GitHub Pages y abrí:
 
-## Cómo subir a GitHub Pages
+`/prueba-v31-stock-en-pantalla/`
 
-1. Subí todo el contenido de esta carpeta al repositorio.
-2. Mantené `index.html` en la raíz.
-3. Mantené las carpetas `assets/` y `supabase/`.
-4. Probá la URL oficial.
+No requiere SQL nuevo si ya ejecutaste el SQL de ofertas V29/V30.
 
-## Login
 
-El login usa Supabase Auth. No se guardan contraseñas dentro del HTML ni dentro del código de la app.
+## V32 — Horario 24 horas
 
-## Bootstrap
-
-Bootstrap 5.3.8 está cargado desde CDN. El CSS propio de la app está en `assets/css/app.css` y se carga después de Bootstrap para conservar el diseño de ALISTA AHORRO.
-
-## Comercialización
-
-Esta versión es un paso intermedio: ya está modularizada y más ordenada, pero para venderla a varios clientes conviene hacer una versión SaaS con:
-
-- multiempresa / multitenant;
-- Supabase Edge Functions para acciones administrativas;
-- Storage con políticas para fotos;
-- auditoría no editable;
-- dominio propio y HTTPS;
-- backups automáticos;
-- términos de uso y política de privacidad.
-
-## V25 - Objetivos simples preventistas
-
-Se agregó el módulo **Objetivos Preventistas** para admin/coadmin.
-Permite cargar objetivos simples por período:
-
-- visitas
-- pedidos
-- ventas
-- cobranza
-
-El preventista ve su avance en el Dashboard.
-Antes de usarlo, ejecutar en Supabase SQL Editor:
-
-`supabase/sql/alista_ahorro_v25_objetivos_preventistas.sql`
+- Fechas y horas nuevas se guardan como `dd/mm/aaaa HH:mm:ss`.
+- En preparación, pedidos, auditoría y cierres se muestra la hora en formato 24 horas, sin AM/PM.
+- No requiere SQL nuevo.
