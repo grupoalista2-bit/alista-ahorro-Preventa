@@ -1,0 +1,10 @@
+ALISTA AHORRO V28 - Oferta Relámpago
+
+Cambios:
+- El módulo visible ahora se muestra como Ofertas Relámpago.
+- Admin/CoAdmin cargan ofertas relámpago para preventistas.
+- Preventistas ven Ofertas Relámpago disponibles para vender.
+- Al importar Excel, la app pregunta si se pausan las ofertas relámpago actuales.
+
+Nota técnica:
+- La tabla de base sigue siendo ofertas_preventistas. No cambió el SQL ni hace falta ejecutar SQL nuevo si ya estaba creada.
