@@ -1,0 +1,1 @@
+V34: mejora vista previa del flyer en celular y exportación de imagen en alta calidad desde teléfono y PC.
