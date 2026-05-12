@@ -219,24 +219,71 @@ function dbDeleteAllArticulos(){
   });
 }
 
-// Desactiva ofertas vigentes antes/después de importar una lista nueva.
-// No borra ofertas: quedan en historial para que Admin/CoAdmin las revise y reactive.
-function dbDesactivarOfertasActivasPorImportacion(){
-  return sbFetch('ofertas_preventistas?activo=eq.true',{
-    method:'PATCH',
-    headers:{'Prefer':'return=representation'},
-    body:JSON.stringify({activo:false,updated_at:(new Date()).toISOString()})
-  }).then(function(r){
-    // Si la tabla todavía no existe o no hay permiso, no frenamos la importación de artículos.
-    if(!r.ok){
-      return r.text().then(function(t){
-        console.warn('No se pudieron desactivar ofertas',r.status,t);
-        return {ok:false,status:r.status,text:t};
-      });
-    }
-    return r.json().then(function(rows){return {ok:true,count:Array.isArray(rows)?rows.length:0};}).catch(function(){return {ok:true,count:0};});
+// Controla ofertas al importar lista nueva.
+// No borra ofertas: puede pausarlas, vincularlas con los artículos nuevos y actualizar precios
+// manteniendo el margen en pesos entre costo anterior y precio de oferta.
+function dbControlarOfertasConNuevaLista(nuevos,pausar){
+  function key(v){return normTxt(String(v||''));}
+  function idxArticulos(arts){
+    var byCod={},byCodArt={},byDesc={};
+    (arts||[]).forEach(function(a){
+      if(a.cod)byCod[key(a.cod)]=a;
+      if(a.codArt)byCodArt[key(a.codArt)]=a;
+      if(a.desc)byDesc[key(a.desc)]=a;
+    });
+    return {byCod:byCod,byCodArt:byCodArt,byDesc:byDesc};
+  }
+  var idx=idxArticulos(nuevos||[]);
+  function buscarArticulo(o){
+    return (o.cod&&idx.byCod[key(o.cod)])||(o.codArt&&idx.byCodArt[key(o.codArt)])||(o.descripcion&&idx.byDesc[key(o.descripcion)])||null;
+  }
+  return dbGet('ofertas_preventistas').then(function(rows){
+    var ofertas=(Array.isArray(rows)?rows:[]).map(dbToOferta);
+    var actualizadas=0,coincidencias=0,pausadas=0,ajustadas=0,dudosas=0;
+    var tareas=ofertas.map(function(o){
+      var art=buscarArticulo(o);
+      var data={updated_at:(new Date()).toISOString()};
+      if(pausar&&o.activo!==false){data.activo=false;pausadas++;}
+      if(art){
+        coincidencias++;
+        var viejoCosto=parseFloat(o.costo)||0;
+        var viejaOferta=parseFloat(o.precioOferta)||0;
+        var nuevoCosto=parseFloat(art.costo)||0;
+        var margen=(viejaOferta>0&&viejoCosto>0)?(viejaOferta-viejoCosto):0;
+        var nuevoOferta=viejaOferta;
+        if(viejaOferta>0&&nuevoCosto>0){
+          nuevoOferta=nuevoCosto+Math.max(0,margen);
+          if(nuevoOferta<nuevoCosto)nuevoOferta=nuevoCosto;
+          if(Math.abs(nuevoOferta-viejaOferta)>0.009)ajustadas++;
+        }
+        Object.assign(data,{
+          articulo_id:art.id,
+          cod:art.cod||o.cod||'',
+          cod_art:art.codArt||o.codArt||'',
+          descripcion:art.desc||o.descripcion||'',
+          precio_regular:parseFloat(art.precio)||parseFloat(o.precioRegular)||0,
+          costo:nuevoCosto||viejoCosto||0,
+          precio_oferta:nuevoOferta||viejaOferta||0,
+          coincidencia_dudosa:false,
+          estado_revision:'ok',
+          revision_motivo:'Coincidencia encontrada en la nueva lista.'
+        });
+      }else{
+        dudosas++;
+        Object.assign(data,{
+          coincidencia_dudosa:true,
+          estado_revision:'revisar',
+          revision_motivo:'Coincidencia dudosa: no se encontró este artículo en la lista nueva. Revisar antes de reactivar la oferta.',
+          mostrar_flyer:false
+        });
+      }
+      if(Object.keys(data).length<=1)return Promise.resolve(null);
+      actualizadas++;
+      return dbUpdate('ofertas_preventistas',o.id,data);
+    });
+    return Promise.all(tareas).then(function(){return {ok:true,count:actualizadas,coincidencias:coincidencias,pausadas:pausadas,ajustadas:ajustadas,dudosas:dudosas};});
   }).catch(function(e){
-    console.warn('dbDesactivarOfertasActivasPorImportacion',e);
+    console.warn('dbControlarOfertasConNuevaLista',e);
     return {ok:false,error:e};
   });
 }
@@ -354,7 +401,10 @@ function ofertaToDb(o){return {
   mostrar_vigencia:o.mostrarVigencia!==false,
   orden_flyer:parseInt(o.ordenFlyer||o.orden_flyer)||0,
   activo:o.activo!==false,
-  created_by:o.createdBy||o.created_by||''
+  created_by:o.createdBy||o.created_by||'',
+  coincidencia_dudosa:o.coincidenciaDudosa===true||o.coincidencia_dudosa===true,
+  estado_revision:o.estadoRevision||o.estado_revision||'ok',
+  revision_motivo:o.revisionMotivo||o.revision_motivo||''
 };}
 function dbToOferta(r){return {
   id:r.id,
@@ -375,7 +425,10 @@ function dbToOferta(r){return {
   mostrarVigencia:r.mostrar_vigencia!==false,
   ordenFlyer:parseInt(r.orden_flyer)||0,
   activo:r.activo!==false,
-  createdBy:r.created_by||''
+  createdBy:r.created_by||'',
+  coincidenciaDudosa:r.coincidencia_dudosa===true,
+  estadoRevision:r.estado_revision||'',
+  revisionMotivo:r.revision_motivo||''
 };}
 function ofertaVigente(o,fecha){
   fecha=fecha||((new Date()).toISOString().slice(0,10));
@@ -3469,7 +3522,7 @@ function Articulos(props){
     var ok=confirm('¿Reemplazar TODOS los artículos con los del archivo nuevo?\n\nAceptar = borra los artículos actuales y carga los nuevos.\nCancelar = no hace nada.');
     if(!ok)return;
 
-    var desactivarOfertas=confirm('Recomendado: al actualizar la lista de precios, las ofertas relámpago actuales pueden quedar con precios viejos.\n\n¿Querés DESACTIVAR las ofertas relámpago actuales para revisarlas después?\n\nAceptar = sí, pausar ofertas relámpago actuales.\nCancelar = conservar ofertas relámpago activas.');
+    var desactivarOfertas=confirm('Recomendado: al actualizar la lista de precios, las ofertas relámpago actuales pueden quedar con precios viejos.\n\n¿Querés DESACTIVAR las ofertas relámpago actuales para revisarlas después?\n\nAceptar = sí, pausar ofertas relámpago actuales.\nCancelar = conservar ofertas relámpago activas.\n\nAdemás, el sistema intentará vincular las ofertas con la lista nueva y ajustar el precio manteniendo el margen sobre costo.');
 
     cargarXLSX(function(err){
       if(err){flash('err',err.message);return;}
@@ -3533,11 +3586,14 @@ function Articulos(props){
           }
 
           setDiag({filas:rows.length,validas:nuevos.length,sinCodigo:saltadasSinCodigo,sinDesc:saltadasSinDesc,duplicadas:duplicadas,coca:contieneCoca,ejemplos:ejemplosCoca,muestrasPrecio:muestrasPrecio,preciosSospechosos:preciosSospechosos,autoCorrigioPrecios:autoCorrigioPrecios});
-          flash('ok',desactivarOfertas?'Desactivando ofertas relámpago y borrando artículos anteriores…':'Borrando artículos anteriores…');
-          (desactivarOfertas?dbDesactivarOfertasActivasPorImportacion():Promise.resolve({ok:true,count:0}))
+          flash('ok',desactivarOfertas?'Pausando y revisando ofertas relámpago contra la lista nueva…':'Revisando ofertas relámpago contra la lista nueva…');
+          dbControlarOfertasConNuevaLista(nuevos,desactivarOfertas)
             .then(function(resOferta){
-              if(desactivarOfertas&&resOferta&&resOferta.ok){flash('ok','Ofertas relámpago pausadas: '+(resOferta.count||0)+'. Ahora actualizo artículos…');}
-              else if(desactivarOfertas){flash('warn','No pude pausar ofertas relámpago automáticamente. Revisalas manualmente después de importar.');}
+              if(resOferta&&resOferta.ok){
+                var txt='Ofertas revisadas: '+(resOferta.count||0)+' · Coincidencias con lista nueva: '+(resOferta.coincidencias||0)+' · Precios ajustados por margen: '+(resOferta.ajustadas||0);
+                if(desactivarOfertas)txt+=' · Pausadas: '+(resOferta.pausadas||0);
+                flash('ok',txt+'. Ahora actualizo artículos…');
+              }else{flash('warn','No pude revisar ofertas relámpago automáticamente. Revisalas manualmente después de importar.');}
               return dbDeleteAllArticulos();
             })
             .then(function(){
@@ -3548,7 +3604,7 @@ function Articulos(props){
               reload();
               var extra=contieneCoca>0?' · En el Excel detecté '+contieneCoca+' filas con COCA/COC.':' · No detecté filas con COCA/COC en el Excel.';
               var extraPrecio=autoCorrigioPrecios?' · También corregí precios invertidos.':'';
-              var extraOfertas=desactivarOfertas?' · Ofertas relámpago actuales pausadas para revisión.':' · Ofertas relámpago actuales conservadas.';
+              var extraOfertas=desactivarOfertas?' · Ofertas relámpago pausadas, vinculadas si coincidían con la lista nueva, con precio revisado por margen y dudosas marcadas para revisar.':' · Ofertas relámpago conservadas, revisadas contra la lista nueva y dudosas marcadas para revisar.';
               flash('ok','✓ '+nuevos.length+' artículos cargados correctamente.'+extra+extraPrecio+extraOfertas);
             })
             .catch(function(e){flash('err','Error al importar: '+(e.message||e));});
@@ -3804,6 +3860,7 @@ function Clientes(props){
 function CuentasCorrientes(props){
   var user=(props&&props.user)||{role:'admin',id:'root',nombre:'Admin'};
   var isAdminOrCo=user.role==='admin'||user.role==='coadmin';
+  var isAdmin=user.role==='admin';
   var isPrev=user.role==='preventista';
   var _a=useState([]),clis=_a[0],setClis=_a[1];
   var _m=useState([]),movs=_m[0],setMovs=_m[1];
@@ -3819,24 +3876,46 @@ function CuentasCorrientes(props){
     dbGet('clientes').then(function(rows){if(Array.isArray(rows))setClis(rows.map(dbToCli));});
     dbGet('movimientos_cc').then(function(rows){if(Array.isArray(rows))setMovs(rows);}).catch(function(){});
     dbGet('visitas').then(function(rows){if(Array.isArray(rows))setVisitas(rows);}).catch(function(){});
-    dbGet('movimientos_cc').then(function(rows){if(Array.isArray(rows))setMovs(rows);}).catch(function(){});
   }
   useEffect(function(){reload();},[]);
   function flash(t,m){setMsg({t:t,m:m});setTimeout(function(){setMsg(null);},4500);}
   function PF(k,v){setPayForm(function(f){return Object.assign({},f,{[k]:v});});}
   function abrirPago(c){setPayCli(c);setPayForm({monto:c.deuda||'',forma:'efectivo',referencia:'',obs:''});}
+  function parseARDateTime(v){
+    v=String(v||'').trim();
+    var m=v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if(!m)return null;
+    return new Date(parseInt(m[3],10),parseInt(m[2],10)-1,parseInt(m[1],10),parseInt(m[4]||0,10),parseInt(m[5]||0,10),parseInt(m[6]||0,10));
+  }
+  function diasDesdeFecha(v){var d=parseARDateTime(v);if(!d)return 0;return Math.floor((new Date()-d)/(24*60*60*1000));}
+  function movsCliente(c){return movs.filter(function(m){return m.cliente_id===c.id;}).sort(function(a,b){return String(a.fecha||'').localeCompare(String(b.fecha||''));});}
+  function infoAtraso(c){
+    if(!(parseFloat(c.deuda)||0))return {dias:0,fecha:null,atrasado:false,estado:'sin_deuda'};
+    var ms=movsCliente(c);
+    var debitos=ms.filter(function(m){return m.tipo==='debito'||String(m.tipo||'').toLowerCase().indexOf('deb')>=0;});
+    var base=debitos.length?debitos[0]:ms[0];
+    var dias=base?diasDesdeFecha(base.fecha):0;
+    return {dias:dias,fecha:base?base.fecha:null,atrasado:dias>7,estado:dias>7?'atrasado':'vigente'};
+  }
   function guardarPago(){
     var c=payCli;var monto=Math.max(0,parseFloat(payForm.monto)||0);
     if(!monto){flash('err','Ingresá el monto cobrado.');return;}
     var gps=gl('gps_last_'+user.id,null);
     var saldoAntes=parseFloat(c.deuda)||0;
     var saldoDespues=Math.max(0,saldoAntes-monto);
+    var fechaHora=nowStr();
     var obs=(payForm.obs||'').trim();
     if(gps)obs=(obs?obs+' · ':'')+'GPS: '+gpsMapsText(gps.lat,gps.lng);
-    var mov={id:uid(),cliente_id:c.id,cliente_nombre:(c.nombreFantasia||c.nombre+' '+c.apellido),tipo:'credito',monto:monto,saldo_antes:saldoAntes,saldo_despues:saldoDespues,fecha:nowStr(),usuario_id:user.id,usuario_nombre:user.nombre||user.username,pedido_id:null,forma_pago:payForm.forma,referencia:payForm.referencia||null,observaciones:obs||null};
+    var mov={
+      id:uid(),cliente_id:c.id,cliente_nombre:(c.nombreFantasia||c.nombre+' '+c.apellido),
+      tipo:'credito',monto:monto,saldo_antes:saldoAntes,saldo_despues:saldoDespues,
+      fecha:fechaHora,fecha_cancelacion:fechaHora,hora_cancelacion:horaSolo(fechaHora),
+      usuario_id:user.id,usuario_nombre:user.nombre||user.username,pedido_id:null,
+      forma_pago:payForm.forma,referencia:payForm.referencia||null,observaciones:obs||null
+    };
     dbUpsert('movimientos_cc',mov).then(function(){return dbUpdate('clientes',c.id,{deuda:saldoDespues});}).then(function(){
-      if(gps){return dbUpsert('visitas',{id:uid(),cliente_id:c.id,cliente_nombre:c.nombre+' '+c.apellido,preventista_id:user.id,preventista_nombre:user.nombre||user.username,fecha:nowStr(),lat:gps.lat,lng:gps.lng,observaciones:'Pago recibido: $'+$(monto)+' · '+payForm.forma});}
-    }).then(function(){setPayCli(null);reload();flash('ok','Pago registrado y cuenta actualizada.');}).catch(function(e){flash('err','Error al registrar pago: '+e.message);});
+      if(gps){return dbUpsert('visitas',{id:uid(),cliente_id:c.id,cliente_nombre:c.nombre+' '+c.apellido,preventista_id:user.id,preventista_nombre:user.nombre||user.username,fecha:fechaHora,lat:gps.lat,lng:gps.lng,observaciones:'Pago recibido: $'+$(monto)+' · '+payForm.forma+' · Saldo: $'+$(saldoDespues)});}
+    }).then(function(){setPayCli(null);reload();flash('ok','Pago registrado con fecha, hora y forma de cancelación.');}).catch(function(e){flash('err','Error al registrar pago: '+e.message);});
   }
   function guardarNegativa(){
     var c=refCli;if(!refMotivo.trim()){flash('err','Escribí el motivo por el que no pagó.');return;}
@@ -3847,28 +3926,44 @@ function CuentasCorrientes(props){
 
   var deudores=clis.filter(function(c){return (c.deuda||0)>0;}).filter(function(c){var hay=normTxt([c.nombre,c.apellido,c.nombreFantasia,c.dir,c.tel].join(' '));return !q||hay.indexOf(normTxt(q))>=0;}).sort(function(a,b){return b.deuda-a.deuda;});
   var totalDeuda=deudores.reduce(function(s,c){return s+(parseFloat(c.deuda)||0);},0);
+  var atrasados=deudores.filter(function(c){return infoAtraso(c).atrasado;});
+  var deudaAtrasada=atrasados.reduce(function(s,c){return s+(parseFloat(c.deuda)||0);},0);
   function histMov(c){return movs.filter(function(m){return m.cliente_id===c.id;}).sort(function(a,b){return String(b.fecha||'').localeCompare(String(a.fecha||''));}).slice(0,5);}
   function histNeg(c){return visitas.filter(function(v){return v.cliente_id===c.id&&String(v.observaciones||'').indexOf('SE NEGÓ A PAGAR')>=0;}).sort(function(a,b){return String(b.fecha||'').localeCompare(String(a.fecha||''));}).slice(0,3);}
 
   return E('div',null,
     msg&&E(Alert,{t:msg.t,msg:msg.m,onClose:function(){setMsg(null);}}),
-    E('div',{className:'kpi-row'},
-      isAdminOrCo&&E('div',{className:'kpi red'},E('div',{className:'kpi-label'},'Total deuda CC'),E('div',{className:'kpi-val'},'$'+$i(totalDeuda))),
+    isAdmin&&E('div',{className:'card'},
+      E('div',{className:'card-title'},'📊 Resumen administrador de cuentas corrientes'),
+      E('div',{className:'kpi-row'},
+        E('div',{className:'kpi red'},E('div',{className:'kpi-label'},'Total deuda CC'),E('div',{className:'kpi-val'},'$'+$i(totalDeuda))),
+        E('div',{className:'kpi orange'},E('div',{className:'kpi-label'},'Clientes con deuda'),E('div',{className:'kpi-val'},deudores.length)),
+        E('div',{className:'kpi red'},E('div',{className:'kpi-label'},'Más de 7 días'),E('div',{className:'kpi-val'},atrasados.length)),
+        E('div',{className:'kpi purple'},E('div',{className:'kpi-label'},'Deuda atrasada'),E('div',{className:'kpi-val'},'$'+$i(deudaAtrasada)))
+      ),
+      atrasados.length?E('div',{className:'alert err'},E('span',null,'⚠ Hay clientes con más de 7 días de atraso sin regularizar. Revisá la columna “Atraso”.')):E('div',{className:'alert ok'},E('span',null,'No hay clientes con más de 7 días de atraso.'))
+    ),
+    !isAdmin&&E('div',{className:'kpi-row'},
       E('div',{className:'kpi orange'},E('div',{className:'kpi-label'},'Clientes con deuda'),E('div',{className:'kpi-val'},deudores.length)),
       isPrev&&E('div',{className:'kpi teal'},E('div',{className:'kpi-label'},'GPS para cobro'),E('div',{className:'kpi-val',style:{fontSize:16}},gl('gps_last_'+user.id,null)?'Activo':'Apagado'))
     ),
     E('div',{className:'card'},
       E('div',{className:'card-hd'},E('div',{className:'card-title'},'💳 Cuentas Corrientes / Cobranza'),E('button',{className:'btn',onClick:reload},'Actualizar')),
+      E('div',{className:'alert warn'},E('span',null,'Los cobros quedan asentados con forma de pago, fecha y hora. Administrador y preventista pueden registrar cobros; el resumen general solo aparece para administrador.')),
       E('input',{className:'fi',placeholder:'Buscar cliente o negocio…',value:q,onChange:function(e){setQ(e.target.value);},style:{marginBottom:10}}),
       deudores.length===0?E('div',{className:'empty'},'No hay deudas pendientes.'):E('div',{className:'tw'},E('table',null,
-        E('thead',null,E('tr',null,E('th',null,'Cliente'),E('th',null,'Dirección'),E('th',null,'Tipo CC'),E('th',null,'Deuda'),E('th',null,'Historial'),E('th',null,''))),
-        E('tbody',null,deudores.map(function(c){var hm=histMov(c),hn=histNeg(c);return E('tr',{key:c.id},
+        E('thead',null,E('tr',null,E('th',null,'Cliente'),E('th',null,'Dirección'),E('th',null,'Tipo CC'),E('th',null,'Deuda'),E('th',null,'Atraso'),E('th',null,'Historial'),E('th',null,''))),
+        E('tbody',null,deudores.map(function(c){var hm=histMov(c),hn=histNeg(c),atr=infoAtraso(c);return E('tr',{key:c.id,className:atr.atrasado?'row-alert':''},
           E('td',null,E('strong',null,c.nombreFantasia||c.nombre+' '+c.apellido),E('div',{style:{fontSize:11,color:'var(--txt2)'}},c.nombre+' '+c.apellido)),
           E('td',null,c.dir||'—'),
           E('td',null,c.tipoCC||'Sin Tope'),
           E('td',null,E('strong',{style:{color:'var(--red)'}},'$'+$(c.deuda||0))),
+          E('td',null,atr.fecha?E('div',null,
+            E('span',{className:atr.atrasado?'badge bad':'badge ok'},atr.atrasado?'⚠ '+atr.dias+' días':'Al día'),
+            E('div',{style:{fontSize:10,color:'var(--txt2)',marginTop:3}},'Desde '+fechaSolo(atr.fecha))
+          ):E('span',{className:'badge'},'Sin fecha')),
           E('td',null,
-            hm.length?E('div',{style:{fontSize:11}},hm.map(function(m,i){return E('div',{key:i},m.fecha+' · '+m.usuario_nombre+' · $'+$(m.monto)+' · '+(m.forma_pago||''));})):E('div',{style:{fontSize:11,color:'var(--txt2)'}},'Sin pagos registrados'),
+            hm.length?E('div',{style:{fontSize:11}},hm.map(function(m,i){return E('div',{key:i},fechaSolo(m.fecha)+' '+horaSolo(m.fecha)+' · '+(m.usuario_nombre||'')+' · $'+$(m.monto)+' · '+(m.forma_pago||''));})):E('div',{style:{fontSize:11,color:'var(--txt2)'}},'Sin pagos registrados'),
             hn.length?E('div',{style:{fontSize:11,color:'var(--orange)',marginTop:4}},'Negativas: '+hn.length):null
           ),
           E('td',null,E('div',{className:'brow'},
@@ -3880,10 +3975,10 @@ function CuentasCorrientes(props){
       ))
     ),
     payCli&&E(Modal,{title:'Registrar cobro — '+(payCli.nombreFantasia||payCli.nombre+' '+payCli.apellido),onClose:function(){setPayCli(null);}},
-      E('div',{className:'alert warn'},E('span',null,'Deuda actual: $'+$(payCli.deuda||0)+' · El GPS se guarda si el recorrido está activo.')),
+      E('div',{className:'alert warn'},E('span',null,'Deuda actual: $'+$(payCli.deuda||0)+' · Fecha y hora: '+nowStr()+' · El GPS se guarda si el recorrido está activo.')),
       E('div',{className:'fg'},E('label',null,'Monto recibido'),E('input',{className:'fi',type:'number',min:0,step:0.01,value:payForm.monto,onChange:function(e){PF('monto',e.target.value);}})),
-      E('div',{className:'fg'},E('label',null,'Forma de pago'),E('select',{className:'fs',value:payForm.forma,onChange:function(e){PF('forma',e.target.value);}},E('option',{value:'efectivo'},'Efectivo'),E('option',{value:'transferencia'},'Transferencia'),E('option',{value:'cheque'},'Cheque'),E('option',{value:'otro'},'Otro'))),
-      E('div',{className:'fg'},E('label',null,'Referencia / comprobante'),E('input',{className:'fi',value:payForm.referencia,onChange:function(e){PF('referencia',e.target.value);},placeholder:'N° transferencia, nota, etc.'})),
+      E('div',{className:'fg'},E('label',null,'Forma de cancelación'),E('select',{className:'fs',value:payForm.forma,onChange:function(e){PF('forma',e.target.value);}},E('option',{value:'efectivo'},'Efectivo'),E('option',{value:'transferencia'},'Transferencia'),E('option',{value:'cheque'},'Cheque'),E('option',{value:'mercadopago'},'Mercado Pago'),E('option',{value:'otro'},'Otro'))),
+      E('div',{className:'fg'},E('label',null,'Referencia / comprobante'),E('input',{className:'fi',value:payForm.referencia,onChange:function(e){PF('referencia',e.target.value);},placeholder:'N° transferencia, cheque, nota, etc.'})),
       E('div',{className:'fg'},E('label',null,'Observaciones'),E('textarea',{className:'fi',rows:3,value:payForm.obs,onChange:function(e){PF('obs',e.target.value);}})),
       gl('gps_last_'+user.id,null)&&E('div',{style:{fontSize:12,color:'var(--green)',marginBottom:10}},'📍 GPS activo: '+gpsMapsText(gl('gps_last_'+user.id,null).lat,gl('gps_last_'+user.id,null).lng)),
       E('div',{className:'brow'},E('button',{className:'btn ok',onClick:guardarPago,style:{flex:1}},'Guardar cobro'),E('button',{className:'btn',onClick:function(){setPayCli(null);},style:{flex:1}},'Cancelar'))
@@ -4440,6 +4535,7 @@ function OfertasPreventistas(props){
   var _mode=useState('catalogo'),flyerMode=_mode[0],setFlyerMode=_mode[1];
   var flyerRef=useRef(null);
   var hoy=(new Date()).toISOString().slice(0,10);
+  var _edit=useState(null),editando= _edit[0],setEditando=_edit[1];
   var _f=useState({precioOferta:'',precioAnterior:'',mostrarPrecioAnterior:true,fechaDesde:hoy,fechaHasta:'',mostrarVigencia:true,stockInfo:'',observacion:'',fotoUrl:'',mostrarFlyer:true,ordenFlyer:0}),form=_f[0],setForm=_f[1];
 
   if(!(isAdminOrCo||isPrev))return E('div',{className:'empty'},'Módulo no disponible para tu rol.');
@@ -4475,13 +4571,13 @@ function OfertasPreventistas(props){
   }
   function guardar(){
     if(!isAdminOrCo){flash('err','Solo Admin o Co-Admin puede crear ofertas relámpago.');return;}
-    if(!sel){flash('err','Elegí un artículo del catálogo.');return;}
+    if(!sel){flash('err','Elegí un artículo del catálogo o editá una oferta existente.');return;}
     if(!form.precioOferta||parseFloat(form.precioOferta)<=0){flash('err','Cargá un precio de oferta relámpago válido.');return;}
     if((parseFloat(form.precioOferta)||0)<(parseFloat(sel.costo)||0)){flash('err','El precio de oferta no puede quedar por debajo del precio de costo.');return;}
     if(!form.fechaDesde){flash('err','Completá la fecha desde.');return;}
     if(form.fechaHasta&&form.fechaHasta<form.fechaDesde){flash('err','La fecha hasta no puede ser menor que desde.');return;}
     var row=ofertaToDb({
-      id:'of_'+sel.id,
+      id:editando&&editando.id?editando.id:'of_'+sel.id,
       articuloId:sel.id,
       cod:sel.cod,
       codArt:sel.codArt,
@@ -4499,14 +4595,34 @@ function OfertasPreventistas(props){
       mostrarVigencia:form.mostrarVigencia!==false,
       ordenFlyer:form.ordenFlyer||0,
       activo:true,
-      createdBy:user.id
+      createdBy:user.id,
+      coincidenciaDudosa:false,
+      estadoRevision:'ok',
+      revisionMotivo:'Revisada manualmente por administrador.'
     });
     dbUpsert('ofertas_preventistas',row).then(function(){
-      flash('ok','Oferta relámpago guardada. El precio se aplicará automáticamente al cargar el pedido.');
-      setSel(null);setQ('');
+      flash('ok',editando?'Oferta relámpago editada.':'Oferta relámpago guardada. El precio se aplicará automáticamente al cargar el pedido.');
+      setEditando(null);setSel(null);setQ('');
       setForm({precioOferta:'',precioAnterior:'',mostrarPrecioAnterior:true,fechaDesde:hoy,fechaHasta:'',mostrarVigencia:true,stockInfo:'',observacion:'',fotoUrl:'',mostrarFlyer:true,ordenFlyer:0});
       cargar();
     }).catch(function(e){flash('err','No se pudo guardar: '+e.message);});
+  }
+  function editarOferta(o){
+    if(!isAdminOrCo)return;
+    var art=(arts||[]).find(function(a){return a.id===o.articuloId||String(a.cod||'')===String(o.cod||'')||String(a.codArt||'')===String(o.codArt||'');});
+    if(!art){art={id:o.articuloId||o.id,cod:o.cod,codArt:o.codArt,desc:o.descripcion,precio:o.precioRegular,costo:o.costo,estado:'activo'};}
+    setEditando(o);setSel(art);setQ(o.descripcion||o.cod||'');
+    setForm({
+      precioOferta:o.precioOferta||'',precioAnterior:o.precioRegular||'',mostrarPrecioAnterior:o.mostrarPrecioAnterior!==false,
+      fechaDesde:o.fechaDesde||hoy,fechaHasta:o.fechaHasta||'',mostrarVigencia:o.mostrarVigencia!==false,
+      stockInfo:o.stockInfo||'',observacion:o.observacion||'',fotoUrl:o.fotoUrl||'',mostrarFlyer:o.mostrarFlyer!==false,ordenFlyer:o.ordenFlyer||0
+    });
+    flash('ok','Editando oferta relámpago: '+(o.descripcion||''));
+    try{window.scrollTo({top:0,behavior:'smooth'});}catch(e){window.scrollTo(0,0);}
+  }
+  function cancelarEdicion(){
+    setEditando(null);setSel(null);setQ('');
+    setForm({precioOferta:'',precioAnterior:'',mostrarPrecioAnterior:true,fechaDesde:hoy,fechaHasta:'',mostrarVigencia:true,stockInfo:'',observacion:'',fotoUrl:'',mostrarFlyer:true,ordenFlyer:0});
   }
   function cambiarEstado(o,activo){
     dbUpdate('ofertas_preventistas',o.id,{activo:activo}).then(function(){flash('ok',activo?'Oferta relámpago reactivada.':'Oferta relámpago desactivada.');cargar();})
@@ -4581,6 +4697,7 @@ function OfertasPreventistas(props){
         ),
         E('span',{className:'pill '+(vig?'ok':'bad')},vig?'vigente':'no vigente')
       ),
+      (o.coincidenciaDudosa||o.estadoRevision==='revisar')&&E('div',{className:'alert warn',style:{marginTop:8,marginBottom:8}},E('span',null,'⚠ Revisar: coincidencia dudosa con la última lista. '+(o.revisionMotivo||''))),
       E('div',{className:'offer-prices'},
         o.mostrarPrecioAnterior!==false&&E('div',null,E('small',null,'Precio anterior'),E('del',null,'$'+$(o.precioRegular))),
         E('div',null,E('small',null,'Oferta Relámpago'),E('strong',null,'$'+$(o.precioOferta)))
@@ -4592,6 +4709,7 @@ function OfertasPreventistas(props){
       o.stockInfo&&E('div',{className:'offer-note'},'Stock / condición: '+o.stockInfo),
       o.observacion&&E('div',{className:'offer-note'},'Obs.: '+o.observacion),
       isAdminOrCo&&E('div',{className:'brow',style:{marginTop:10}},
+        E('button',{className:'btn sm',onClick:function(){editarOferta(o);}},'Editar'),
         E('button',{className:'btn sm '+(o.activo===false?'ok':'warn'),onClick:function(){cambiarEstado(o,o.activo===false);}},o.activo===false?'Reactivar':'Desactivar'),
         E('button',{className:'btn sm dan',onClick:function(){borrar(o);}},'Eliminar')
       )
@@ -4633,8 +4751,8 @@ function OfertasPreventistas(props){
     msg&&E(Alert,{t:msg.t,msg:msg.m,onClose:function(){setMsg(null);}}),
     isAdminOrCo&&E('div',{className:'card'},
       E('div',{className:'card-hd'},
-        E('div',{className:'card-title'},'🔥 Crear oferta relámpago para preventistas'),
-        E('button',{className:'btn',onClick:cargar},'🔄 Actualizar')
+        E('div',{className:'card-title'},editando?'✏️ Editar oferta relámpago':'🔥 Crear oferta relámpago para preventistas'),
+        E('div',{className:'brow'},editando&&E('button',{className:'btn',onClick:cancelarEdicion},'Cancelar edición'),E('button',{className:'btn',onClick:cargar},'🔄 Actualizar'))
       ),
       E('div',{className:'alert warn'},E('span',null,'El precio de oferta se aplica automáticamente cuando el preventista carga el producto en un pedido.')),
       E('div',{className:'fg'},E('label',null,'Buscar artículo'),
@@ -4643,7 +4761,7 @@ function OfertasPreventistas(props){
       q&&E('div',{className:'offer-search-list'},buscados.length?buscados.map(function(a){return E('button',{key:a.id,className:'offer-search-item '+(sel&&sel.id===a.id?'on':''),onClick:function(){elegirArticulo(a);}},
         E('span',null,a.desc),E('small',null,(a.cod||'')+' · Público $'+$(a.precio)+' · Costo $'+$(a.costo))
       );}):E('div',{className:'empty',style:{padding:10}},'No hay coincidencias.')),
-      sel&&E('div',{className:'alert ok'},E('span',null,'Seleccionado: '+sel.desc+' · Código '+(sel.cod||'—')+' · Precio actual $'+$(sel.precio))),
+      sel&&E('div',{className:'alert ok'},E('span',null,(editando?'Editando: ':'Seleccionado: ')+sel.desc+' · Código '+(sel.cod||'—')+' · Precio actual $'+$(sel.precio)+' · Costo $'+$(sel.costo||0))),
       E('div',{className:'grid2'},
         E('div',{className:'fg'},E('label',null,'Precio oferta relámpago $'),E('input',{className:'fi',type:'number',min:0,value:form.precioOferta,onChange:function(e){set('precioOferta',e.target.value);}})),
         E('div',{className:'fg'},E('label',null,'Precio anterior opcional $'),E('input',{className:'fi',type:'number',min:0,value:form.precioAnterior,onChange:function(e){set('precioAnterior',e.target.value);}})),
@@ -4659,7 +4777,7 @@ function OfertasPreventistas(props){
       ),
       E('div',{className:'fg'},E('label',null,'Foto de la oferta opcional'),E('input',{className:'fi',type:'file',accept:'image/*',onChange:onFoto}),form.fotoUrl&&E('div',{className:'photo-preview'},E('img',{src:form.fotoUrl,alt:'Foto oferta'}),E('button',{className:'btn sm',onClick:function(){set('fotoUrl','');}},'Quitar foto'))),
       E('div',{className:'fg'},E('label',null,'Observación opcional'),E('textarea',{className:'fi',rows:2,value:form.observacion,onChange:function(e){set('observacion',e.target.value);},placeholder:'Ej: ideal para ofrecer a clientes con alta rotación…'})),
-      E('button',{className:'btn pri',onClick:guardar},'💾 Guardar oferta relámpago')
+      E('button',{className:'btn pri',onClick:guardar},editando?'💾 Guardar cambios de oferta':'💾 Guardar oferta relámpago')
     ),
     E('div',{className:'card'},
       E('div',{className:'card-hd'},
