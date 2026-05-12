@@ -27,6 +27,30 @@ body{
   }
 }
 
+
+.flyer-export-host{position:fixed;left:-10000px;top:0;width:820px;pointer-events:none;opacity:0;z-index:-1}
+.flyer-export-host .flyer-a4{transform:none!important;width:794px!important;min-height:1123px!important;max-width:none!important;margin:0 0 16px 0!important;padding:34px!important;box-shadow:none!important;border-radius:0!important;overflow:hidden!important}
+.flyer-export-host .flyer-grid-8{grid-template-columns:1fr 1fr!important;grid-template-rows:repeat(4,1fr)!important;gap:14px!important;margin:22px 0!important}
+.flyer-export-host .flyer-header{display:flex!important;flex-direction:row!important;align-items:center!important;gap:22px!important;border-bottom:8px solid #f20746!important;padding-bottom:18px!important}
+.flyer-export-host .flyer-header img{width:150px!important;max-height:95px!important}
+.flyer-export-host .flyer-title-wrap{text-align:right!important;width:auto!important}
+.flyer-export-host .flyer-title{font-size:44px!important}
+.flyer-export-host .flyer-sub{font-size:15px!important}
+.flyer-export-host .flyer-product{grid-template-columns:118px 1fr!important;min-height:128px!important;padding:12px!important;gap:3px 12px!important}
+.flyer-export-host .flyer-img-wrap{width:118px!important;height:108px!important}
+.flyer-export-host .flyer-prod-name{font-size:17px!important;max-height:40px!important}
+.flyer-export-host .flyer-code{font-size:11px!important}
+.flyer-export-host .flyer-prev{font-size:13px!important}
+.flyer-export-host .flyer-price{font-size:31px!important}
+.flyer-export-host .flyer-valid{font-size:11px!important}
+.flyer-export-host .flyer-footer{display:flex!important;flex-direction:row!important;justify-content:space-between!important;align-items:center!important;font-size:12px!important;gap:12px!important}
+.flyer-export-host .flyer-product.featured{display:flex!important;flex-direction:column!important;text-align:center!important;width:88%!important;min-height:760px!important;padding:28px!important}
+.flyer-export-host .flyer-product.featured .flyer-img-wrap{width:100%!important;height:400px!important}
+.flyer-export-host .flyer-product.featured .flyer-prod-name{font-size:34px!important;max-height:none!important}
+.flyer-export-host .flyer-product.featured .flyer-code{font-size:15px!important}
+.flyer-export-host .flyer-product.featured .flyer-prev{font-size:24px!important}
+.flyer-export-host .flyer-product.featured .flyer-price{font-size:82px!important}
+.flyer-export-host .flyer-product.featured .flyer-valid{font-size:18px!important}
 @media print{
   body > *{display:none !important}
   #boleta-print{display:block !important;position:fixed;top:0;left:0;width:100%;z-index:9999;background:#fff}
@@ -593,8 +617,8 @@ img,canvas,svg,video{max-width:100%;height:auto}
 .flyer-valid{grid-area:valid;color:#023373;font-size:11px;font-weight:800}
 .flyer-footer{border-top:6px solid #023373;padding-top:13px;display:flex;gap:12px;justify-content:space-between;align-items:center;font-size:12px;font-weight:800;color:#023373;position:relative;z-index:1}
 .flyer-single .flyer-header{border-bottom-width:10px}.flyer-single-body{flex:1;display:flex;align-items:center;justify-content:center;position:relative;z-index:1}.flyer-product.featured{display:flex;flex-direction:column;text-align:center;width:88%;min-height:760px;padding:28px}.flyer-product.featured .flyer-img-wrap{width:100%;height:400px}.flyer-product.featured .flyer-prod-name{font-size:34px;max-height:none}.flyer-product.featured .flyer-code{font-size:15px}.flyer-product.featured .flyer-prev{font-size:24px}.flyer-product.featured .flyer-price{font-size:82px}.flyer-product.featured .flyer-valid{font-size:18px}
-@media(max-width:900px){.flyer-preview-wrap{align-items:flex-start}.flyer-a4{transform:scale(.72);transform-origin:top left;margin-bottom:-315px}.flyer-builder{overflow:hidden}}
-@media(max-width:660px){.flyer-a4{transform:scale(.45);margin-bottom:-610px}.flyer-preview-wrap{padding:8px}.photo-preview{align-items:flex-start;flex-direction:column}}
+@media(max-width:900px){.flyer-preview-wrap{align-items:stretch;padding:12px;overflow:visible}.flyer-a4{width:100%;max-width:794px;min-height:auto;padding:22px;box-sizing:border-box;margin:0 auto}.flyer-builder{overflow:hidden}.flyer-header img{width:120px;max-height:76px}.flyer-title{font-size:32px}.flyer-grid-8{gap:12px}}
+@media(max-width:660px){.flyer-preview-wrap{padding:8px}.flyer-a4{padding:14px;border-radius:16px}.flyer-header{gap:12px;padding-bottom:12px;border-bottom-width:6px;align-items:flex-start;flex-direction:column}.flyer-title-wrap{text-align:left;width:100%}.flyer-title{font-size:26px}.flyer-sub{font-size:12px}.flyer-grid-8{grid-template-columns:1fr;grid-template-rows:none;gap:10px;margin:16px 0}.flyer-product{grid-template-columns:92px 1fr;min-height:110px;padding:10px;gap:2px 10px}.flyer-img-wrap{width:92px;height:92px}.flyer-prod-name{font-size:15px;max-height:none}.flyer-code{font-size:10px}.flyer-prev{font-size:12px}.flyer-price{font-size:28px}.flyer-valid{font-size:10px}.flyer-footer{flex-direction:column;align-items:flex-start;font-size:11px;gap:6px}.flyer-product.featured{width:100%;min-height:auto;padding:18px}.flyer-product.featured .flyer-img-wrap{width:100%;height:220px}.flyer-product.featured .flyer-prod-name{font-size:24px}.flyer-product.featured .flyer-code{font-size:13px}.flyer-product.featured .flyer-prev{font-size:18px}.flyer-product.featured .flyer-price{font-size:54px}.flyer-product.featured .flyer-valid{font-size:15px}.photo-preview{align-items:flex-start;flex-direction:column}}
 @media print{
   body.print-flyer-mode *{visibility:hidden!important}
   body.print-flyer-mode .flyer-preview-wrap,body.print-flyer-mode .flyer-preview-wrap *{visibility:visible!important}
@@ -602,4 +626,87 @@ img,canvas,svg,video{max-width:100%;height:auto}
   body.print-flyer-mode .flyer-a4{box-shadow:none!important;margin:0 auto!important;page-break-after:always!important;transform:none!important;width:210mm!important;min-height:297mm!important;padding:10mm!important}
   body.print-flyer-mode .flyer-a4:last-child{page-break-after:auto!important}
   @page{size:A4 portrait;margin:0}
+}
+
+/* V33 - Ajustes finales mobile + flyer imagen por hoja
+   - Permite scroll con un dedo en celular.
+   - Evita que mapas/iframes bloqueen el scroll vertical.
+   - Hace visible el botón Nuevo Cliente en pantallas chicas.
+   - La exportación de flyer se maneja desde JS por cada hoja A4. */
+html,body,#root,.app,.main,.page{
+  overscroll-behavior-y:auto !important;
+}
+.page,.modal,.ov,.sb-nav,.bottom-nav,.art-list,.tw,.flyer-preview-wrap{
+  -webkit-overflow-scrolling:touch !important;
+}
+.page,.modal,.ov{
+  touch-action:pan-y !important;
+}
+.tw,.bottom-nav,.flyer-preview-wrap{
+  touch-action:pan-x pan-y !important;
+}
+.map-wrap,.leaflet-container{
+  touch-action:pan-y !important;
+}
+@media(max-width:660px){
+  .page{
+    overflow-y:auto !important;
+    overflow-x:hidden !important;
+    height:auto !important;
+    min-height:calc(100dvh - var(--topbar));
+  }
+  .clientes-page .card-hd{
+    gap:10px;
+  }
+  .clientes-page .card-hd > .btn,
+  .clientes-page .card-hd .btn.pri{
+    width:100% !important;
+    min-height:48px;
+    font-size:15px;
+  }
+  .clientes-page .sinput,
+  .clientes-page .fi,
+  .clientes-page .fs{
+    width:100% !important;
+  }
+  .clientes-page .card:first-of-type{
+    position:relative;
+  }
+}
+
+
+/* V35 - Flyer legible en celular y menú admin completo */
+@media(max-width:760px){
+  .flyer-builder{overflow:visible!important}
+  .flyer-preview-wrap{display:block!important;overflow:visible!important;padding:10px!important;background:#f1f5f9!important}
+  .flyer-preview-wrap .flyer-a4{width:100%!important;max-width:100%!important;min-height:auto!important;padding:12px!important;margin:0 auto 14px!important;box-shadow:0 6px 18px rgba(15,23,42,.16)!important;border-radius:14px!important;box-sizing:border-box!important;overflow:hidden!important;transform:none!important}
+  .flyer-preview-wrap .flyer-header{display:grid!important;grid-template-columns:110px 1fr!important;gap:10px!important;align-items:center!important;border-bottom-width:5px!important;padding-bottom:10px!important}
+  .flyer-preview-wrap .flyer-header img{width:105px!important;max-height:70px!important}
+  .flyer-preview-wrap .flyer-title-wrap{text-align:left!important;min-width:0!important;width:auto!important;overflow:hidden!important}
+  .flyer-preview-wrap .flyer-title{font-size:22px!important;line-height:1.02!important;letter-spacing:.01em!important;white-space:normal!important;word-break:normal!important;overflow-wrap:normal!important;hyphens:none!important}
+  .flyer-preview-wrap .flyer-sub{font-size:10px!important;line-height:1.2!important;word-break:normal!important}
+  .flyer-preview-wrap .flyer-grid-8{display:grid!important;grid-template-columns:1fr!important;grid-template-rows:none!important;gap:9px!important;margin:12px 0!important}
+  .flyer-preview-wrap .flyer-product{display:grid!important;grid-template-columns:86px 1fr!important;grid-template-areas:'img name' 'img code' 'img prev' 'img price' 'img valid'!important;min-height:95px!important;padding:9px!important;gap:2px 9px!important;border-radius:14px!important}
+  .flyer-preview-wrap .flyer-img-wrap{width:86px!important;height:86px!important;border-radius:10px!important}
+  .flyer-preview-wrap .flyer-prod-name{font-size:14px!important;line-height:1.12!important;max-height:none!important;word-break:normal!important;overflow-wrap:break-word!important}
+  .flyer-preview-wrap .flyer-code{font-size:9px!important;white-space:normal!important;word-break:normal!important}
+  .flyer-preview-wrap .flyer-prev{font-size:11px!important}
+  .flyer-preview-wrap .flyer-price{font-size:25px!important;line-height:1!important;white-space:nowrap!important}
+  .flyer-preview-wrap .flyer-valid{font-size:9px!important}
+  .flyer-preview-wrap .flyer-footer{display:block!important;font-size:10px!important;line-height:1.35!important;border-top-width:4px!important;padding-top:8px!important}
+  .flyer-preview-wrap .flyer-footer span{display:block!important;margin-bottom:3px!important}
+  .flyer-preview-wrap .flyer-product.featured{width:100%!important;min-height:auto!important;padding:14px!important}
+  .flyer-preview-wrap .flyer-product.featured .flyer-img-wrap{width:100%!important;height:210px!important}
+  .flyer-preview-wrap .flyer-product.featured .flyer-prod-name{font-size:22px!important}
+  .flyer-preview-wrap .flyer-product.featured .flyer-price{font-size:48px!important}
+  .bottom-nav{overflow-x:auto!important;justify-content:flex-start!important}
+  .bn-item{flex:0 0 64px!important;min-width:64px!important}
+}
+@media(max-width:360px){
+  .flyer-preview-wrap .flyer-header{grid-template-columns:92px 1fr!important}
+  .flyer-preview-wrap .flyer-header img{width:90px!important}
+  .flyer-preview-wrap .flyer-title{font-size:19px!important}
+  .flyer-preview-wrap .flyer-product{grid-template-columns:74px 1fr!important}
+  .flyer-preview-wrap .flyer-img-wrap{width:74px!important;height:74px!important}
+  .flyer-preview-wrap .flyer-price{font-size:22px!important}
 }

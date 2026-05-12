@@ -945,13 +945,31 @@ function generarResumenUnidadesVendidas(pedidos,desde,hasta,preventistaId){
    GPS HELPERS
 ═══════════════════════════ */
 function gpsKey(userId){return 'gps_'+userId+'_'+todayStr().replace(/\//g,'-');}
-function saveGPSPoint(userId,lat,lng){
+var __gpsSyncLast={};
+function saveGPSPoint(userId,lat,lng,user){
+  var ts=Date.now();
   var k=gpsKey(userId);
   var pts=gl(k,[]);
-  pts.push({lat:lat,lng:lng,ts:Date.now()});
+  pts.push({lat:lat,lng:lng,ts:ts});
   // keep max 500 points
   if(pts.length>500)pts=pts.slice(-500);
   sl(k,pts);
+  // V35: también sincroniza puntos GPS a Supabase para que el administrador pueda verlos desde otro equipo.
+  if(typeof dbUpsert==='function'&&(!__gpsSyncLast[userId]||ts-__gpsSyncLast[userId]>8000)){
+    __gpsSyncLast[userId]=ts;
+    var d=new Date(ts);
+    dbUpsert('gps_puntos',{
+      id:String(userId)+'_'+String(ts),
+      usuario_id:String(userId),
+      usuario_nombre:(user&&(user.nombre||user.username))||'',
+      fecha:nowStr(),
+      fecha_dia:d.toISOString().slice(0,10),
+      lat:lat,
+      lng:lng,
+      ts:ts,
+      activo:true
+    }).catch(function(e){console.warn('No se pudo sincronizar GPS remoto',e&&e.message?e.message:e);});
+  }
 }
 function getGPSPoints(userId,dateStr){
   var k='gps_'+userId+'_'+(dateStr||todayStr().replace(/\//g,'-'));
@@ -1255,7 +1273,15 @@ function LeafletMap(props){
   useEffect(function(){
     if(!mapRef.current||initRef.current)return;
     initRef.current=true;
-    var m=L.map(mapRef.current,{zoomControl:true,attributionControl:true})
+    var isTouchDevice=(typeof window!=='undefined')&&((window.matchMedia&&window.matchMedia('(pointer: coarse)').matches)||('ontouchstart' in window));
+    var m=L.map(mapRef.current,{
+      zoomControl:true,
+      attributionControl:true,
+      dragging:!isTouchDevice,
+      tap:false,
+      touchZoom:!isTouchDevice,
+      scrollWheelZoom:false
+    })
       .setView(props.center||LOS_JURIOS,props.zoom||14);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(m);
     mapInst.current=m;
@@ -1314,6 +1340,7 @@ function useGPS(user){
   var _c=useState(''),gpsErr=_c[0],setGpsErr=_c[1];
   var watchId=useRef(null);
   var wakeRef=useRef(null); // keep screen awake
+  var heartbeatRef=useRef(null); // respaldo: fuerza puntos periódicos aunque watchPosition se quede quieto
 
   function startGPS(){
     if(!navigator.geolocation){setGpsErr('Este dispositivo no tiene GPS.');return;}
@@ -1323,16 +1350,31 @@ function useGPS(user){
     sl('gps_started_at_'+user.id,{ts:Date.now(),fecha:nowStr()});
     setGPSStatus(user.id,true);
     setGpsOn(true);
-    // Try to keep screen awake using WakeLock API
-    if(navigator.wakeLock){
-      navigator.wakeLock.request('screen').then(function(lock){wakeRef.current=lock;}).catch(function(){});
+    function guardarPosicion(p){
+      var lat=p.coords.latitude,lng=p.coords.longitude;
+      setPos({lat:lat,lng:lng,acc:p.coords.accuracy});
+      saveGPSPoint(user.id,lat,lng,user);
+      sl('gps_last_'+user.id,{lat:lat,lng:lng,ts:Date.now(),nombre:user.nombre||user.username,acc:p.coords.accuracy});
     }
+    function pedirWakeLock(){
+      if(navigator.wakeLock){
+        navigator.wakeLock.request('screen').then(function(lock){wakeRef.current=lock;}).catch(function(){});
+      }
+    }
+    pedirWakeLock();
+    // Punto inmediato al iniciar, para que el administrador vea señal rápido.
+    navigator.geolocation.getCurrentPosition(function(p){guardarPosicion(p);},function(){},{enableHighAccuracy:true,timeout:20000,maximumAge:0});
+    // Respaldo: además del watchPosition, fuerza una lectura cada 15 segundos mientras la pantalla esté activa.
+    if(heartbeatRef.current)clearInterval(heartbeatRef.current);
+    heartbeatRef.current=setInterval(function(){
+      if(!getGPSStatus(user.id))return;
+      navigator.geolocation.getCurrentPosition(function(p){guardarPosicion(p);setGpsErr('');},function(err){
+        if(err&&err.code===3)return; // timeout: no cortar recorrido
+      },{enableHighAccuracy:true,timeout:20000,maximumAge:10000});
+    },15000);
     watchId.current=navigator.geolocation.watchPosition(
       function(p){
-        var lat=p.coords.latitude,lng=p.coords.longitude;
-        setPos({lat:lat,lng:lng,acc:p.coords.accuracy});
-        saveGPSPoint(user.id,lat,lng);
-        sl('gps_last_'+user.id,{lat:lat,lng:lng,ts:Date.now(),nombre:user.nombre||user.username});
+        guardarPosicion(p);
       },
       function(err){
         var msgs={1:'Permiso GPS denegado. Andá a Ajustes > Privacidad > Ubicación y habilitá el navegador.',2:'GPS no disponible. Verificá que el GPS del teléfono esté activado.',3:'El GPS tardó demasiado. Intentá de nuevo al aire libre.'};
@@ -1343,7 +1385,7 @@ function useGPS(user){
             if(watchId.current!==null){
               navigator.geolocation.clearWatch(watchId.current);
               watchId.current=navigator.geolocation.watchPosition(
-                function(p){setPos({lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy});saveGPSPoint(user.id,p.coords.latitude,p.coords.longitude);sl('gps_last_'+user.id,{lat:p.coords.latitude,lng:p.coords.longitude,ts:Date.now(),nombre:user.nombre||user.username});setGpsErr('');},
+                function(p){guardarPosicion(p);setGpsErr('');},
                 function(){},
                 {enableHighAccuracy:true,timeout:30000,maximumAge:5000}
               );
@@ -1361,6 +1403,7 @@ function useGPS(user){
     var info=gpsJornadaInfo();
     if(info.locked){setGpsErr(info.msg);return;}
     if(watchId.current!==null){navigator.geolocation.clearWatch(watchId.current);watchId.current=null;}
+    if(heartbeatRef.current){clearInterval(heartbeatRef.current);heartbeatRef.current=null;}
     if(wakeRef.current){try{wakeRef.current.release();}catch(e){}wakeRef.current=null;}
     setGPSStatus(user.id,false);
     setGpsOn(false);
@@ -1369,9 +1412,26 @@ function useGPS(user){
   }
 
   useEffect(function(){
+    function onVisibleAgain(){
+      if(document.visibilityState==='visible'&&getGPSStatus(user.id)){
+        // Al volver a la pantalla, reanuda wake lock y fuerza un punto inmediato.
+        if(navigator.wakeLock){navigator.wakeLock.request('screen').then(function(lock){wakeRef.current=lock;}).catch(function(){});}
+        if(navigator.geolocation){
+          navigator.geolocation.getCurrentPosition(function(p){
+            var lat=p.coords.latitude,lng=p.coords.longitude;
+            setPos({lat:lat,lng:lng,acc:p.coords.accuracy});
+            saveGPSPoint(user.id,lat,lng,user);
+            sl('gps_last_'+user.id,{lat:lat,lng:lng,ts:Date.now(),nombre:user.nombre||user.username,acc:p.coords.accuracy});
+          },function(){},{enableHighAccuracy:true,timeout:20000,maximumAge:0});
+        }
+      }
+    }
+    document.addEventListener('visibilitychange',onVisibleAgain);
     if(gpsOn&&watchId.current===null)startGPS();
     return function(){
+      document.removeEventListener('visibilitychange',onVisibleAgain);
       if(watchId.current!==null){navigator.geolocation.clearWatch(watchId.current);watchId.current=null;}
+      if(heartbeatRef.current){clearInterval(heartbeatRef.current);heartbeatRef.current=null;}
       if(wakeRef.current){try{wakeRef.current.release();}catch(e){}wakeRef.current=null;}
     };
   },[]);
@@ -2209,7 +2269,7 @@ function MapaGPS(props){
             E('div',{style:{fontSize:15,fontWeight:700,marginBottom:8,color:'var(--txt2)'}},
               '📍 GPS apagado'),
             E('div',{style:{fontSize:13,color:'var(--txt2)',marginBottom:14,lineHeight:1.6}},
-              'Presioná el botón para empezar a registrar tu recorrido en el mapa. Se habilita desde las 08:00.'),
+              'Presioná el botón para empezar a registrar tu recorrido en el mapa. Se habilita desde las 08:00. Para transmitir continuo, dejá esta pantalla abierta y evitá bloquear el teléfono.'),
             E('button',{className:'btn ok lg full',onClick:gps.startGPS,disabled:!lockInfo.puedeIniciar},
               lockInfo.puedeIniciar?'▶ Iniciar Recorrido':'🔒 Disponible desde las 08:00')
           )
@@ -2217,7 +2277,7 @@ function MapaGPS(props){
             E('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8,marginBottom:10}},
               E('div',{style:{display:'flex',alignItems:'center',gap:8}},
                 E('span',{className:'gps-dot on'}),
-                E('span',{style:{fontWeight:700,fontSize:14}},'GPS Activo'),
+                E('span',{style:{fontWeight:700,fontSize:14}},'GPS Activo · transmitiendo cada 15 s'),
                 gps.pos&&E('span',{style:{fontSize:12,color:'var(--txt2)'}},'±'+Math.round(gps.pos.acc||0)+'m')
               ),
               E('button',{className:'btn dan sm',onClick:gps.stopGPS,disabled:lockInfo.locked,
@@ -2288,36 +2348,62 @@ function MapaGPS(props){
   );
 }
 
+
+// V36: helper global para que MapaAdmin no se quede en blanco al renderizar puntos GPS remotos.
+function safePopupTxt(v){
+  return String(v==null?'':v).replace(/[&<>"']/g,function(ch){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
+  });
+}
+
 /* ═══════════════════════════
    MAPA ADMIN (Todos los Preventistas)
 ═══════════════════════════ */
 function MapaAdmin(){
-  var users=gl('users',[]).filter(function(u){return u.role==='preventista';});
+  var _u=useState(gl('users',[]).filter(function(u){return u.role==='preventista';})),users=_u[0],setUsers=_u[1];
   var _a=useState([]),posiciones=_a[0],setPosiciones=_a[1];
   var _b=useState(null),selectedUser=_b[0],setSelectedUser=_b[1];
+  var _g=useState([]),gpsRemotos=_g[0],setGpsRemotos=_g[1];
 
   var colors=['#E31E24','#e07b10','#7c3aed','#0891b2','#1a9e5c'];
+  function fechaISOHoy(){return (new Date()).toISOString().slice(0,10);}
+  function remotePointsFor(id){
+    var hoy=fechaISOHoy();
+    return gpsRemotos.filter(function(p){return String(p.usuario_id)===String(id)&&String(p.fecha_dia||'').slice(0,10)===hoy&&p.lat&&p.lng;})
+      .map(function(p){return {lat:parseFloat(p.lat),lng:parseFloat(p.lng),ts:parseInt(p.ts,10)||Date.parse(p.created_at||'')||Date.now()};})
+      .sort(function(a,b){return (a.ts||0)-(b.ts||0);});
+  }
+  function trackFor(id){var r=remotePointsFor(id);return r.length?r:getGPSPoints(id,null);}
+  function lastFor(u){
+    var r=remotePointsFor(u.id);if(r.length)return Object.assign({},r[r.length-1],{remoto:true,nombre:u.nombre||u.username});
+    return gl('gps_last_'+u.id,null);
+  }
 
   useEffect(function(){
     function update(){
-      var pos=users.map(function(u){
-        return Object.assign({},u,{lastPos:gl('gps_last_'+u.id,null)});
-      });
-      setPosiciones(pos);
+      dbGet('usuarios').then(function(rows){
+        if(Array.isArray(rows)&&rows.length)setUsers(rows.map(dbToUser).filter(function(u){return u.role==='preventista'&&u.activo!==false;}));
+      }).catch(function(){});
+      dbGet('gps_puntos').then(function(rows){if(Array.isArray(rows))setGpsRemotos(rows);}).catch(function(){});
     }
     update();
-    var iv=setInterval(update,5000);
+    var iv=setInterval(update,8000);
     return function(){clearInterval(iv);};
   },[]);
 
+  useEffect(function(){
+    var pos=users.map(function(u){return Object.assign({},u,{lastPos:lastFor(u)});});
+    setPosiciones(pos);
+  },[users,gpsRemotos]);
+
   var markers=posiciones.filter(function(u){return u.lastPos;}).map(function(u,i){
     return {lat:u.lastPos.lat,lng:u.lastPos.lng,color:colors[i%colors.length],
-      popup:'<strong>'+u.nombre+'</strong><br>'+new Date(u.lastPos.ts).toLocaleTimeString('es-AR')};
+      popup:'<strong>'+safePopupTxt(u.nombre||u.username)+'</strong><br>'+(u.lastPos.remoto?'GPS sincronizado':'GPS local')+'<br>'+new Date(u.lastPos.ts).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})};
   });
 
   var tracks=selectedUser?[{
-    points:getGPSPoints(selectedUser,null),
-    color:colors[users.findIndex(function(u){return u.id===selectedUser;})%colors.length]
+    points:trackFor(selectedUser),
+    color:colors[Math.max(0,users.findIndex(function(u){return u.id===selectedUser;}))%colors.length]
   }]:[];
 
   return E('div',null,
@@ -2328,16 +2414,17 @@ function MapaAdmin(){
           E('select',{className:'fs',style:{width:'auto'},value:selectedUser||'',
             onChange:function(e){setSelectedUser(e.target.value||null);}},
             E('option',{value:''},'— Ver recorrido de —'),
-            users.map(function(u){return E('option',{key:u.id,value:u.id},u.nombre);})
+            users.map(function(u){return E('option',{key:u.id,value:u.id},u.nombre||u.username);})
           )
         )
       ),
-      posiciones.length===0?E('div',{className:'empty'},'No hay preventistas con GPS activo.'):
+      E('div',{className:'alert ok',style:{marginBottom:12}},E('span',null,'V35: el recorrido GPS se sincroniza con Supabase. Si el preventista tiene GPS activo, el administrador puede verlo desde otro teléfono o computadora.')),
+      posiciones.length===0?E('div',{className:'empty'},'No hay preventistas cargados.'):
       E('div',{style:{marginBottom:12,display:'flex',gap:8,flexWrap:'wrap'}},
         posiciones.map(function(u,i){
           return E('div',{key:u.id,style:{display:'flex',alignItems:'center',gap:6,fontSize:12}},
             E('span',{style:{width:10,height:10,borderRadius:'50%',background:colors[i%colors.length],display:'inline-block'}}),
-            u.nombre, u.lastPos?E('span',{style:{color:'var(--green)',fontWeight:700}},' (activo)')
+            u.nombre||u.username, u.lastPos?E('span',{style:{color:'var(--green)',fontWeight:700}},' (GPS activo)')
                                 :E('span',{style:{color:'var(--txt2)'}},' (sin GPS)')
           );
         })
@@ -3641,7 +3728,7 @@ function Clientes(props){
     return {lat:lat,lng:lng,color:color,popup:popup};
   });
 
-  return E('div',null,
+  return E('div',{className:'clientes-page'},
     msg&&E(Alert,{t:msg.t,msg:msg.m,onClose:function(){setMsg(null);}}),
     E('div',{className:'card'},
       E('div',{className:'card-hd'},
@@ -4325,7 +4412,9 @@ function BottomNav(props){
     item('nuevo-pedido','🛒','Pedido'),
     item('cola-prep','⚙️','Preparar',pendCount),
     item('todos-pedidos','📋','Pedidos'),
+    item('clientes','👥','Clientes'),
     item('ofertas','🔥','Ofertas Relámpago'),
+    item('mapa-admin','🗺️','GPS'),
     item('auditoria','🧭','Auditoría')
   );
 
@@ -4451,10 +4540,31 @@ function OfertasPreventistas(props){
   function exportFlyerImg(){
     if(!window.html2canvas){flash('err','No se pudo cargar html2canvas para exportar imagen.');return;}
     if(!flyerRef.current){flash('err','No hay flyer para exportar.');return;}
-    flash('ok','Generando imagen…');
-    window.html2canvas(flyerRef.current,{scale:2,backgroundColor:'#ffffff',useCORS:true}).then(function(canvas){
-      descargarDataUrl(canvas.toDataURL('image/png'),'Oferta_Relampago_ALISTA_AHORRO.png');
-    }).catch(function(e){flash('err','No se pudo generar imagen: '+e.message);});
+    var pages=Array.prototype.slice.call(flyerRef.current.querySelectorAll('.flyer-a4'));
+    if(!pages.length){flash('err','No hay páginas A4 para exportar.');return;}
+    var host=document.createElement('div');
+    host.className='flyer-export-host';
+    document.body.appendChild(host);
+    var clones=pages.map(function(page){
+      var clone=page.cloneNode(true);
+      host.appendChild(clone);
+      return clone;
+    });
+    flash('ok','Generando imagen'+(pages.length>1?'es por hoja A4…':'…'));
+    function cleanup(){if(host&&host.parentNode)host.parentNode.removeChild(host);}
+    function renderPage(i){
+      var page=clones[i];
+      return window.html2canvas(page,{scale:3,backgroundColor:'#ffffff',useCORS:true,logging:false,windowWidth:794,windowHeight:1123,width:794,height:page.scrollHeight,scrollX:0,scrollY:0}).then(function(canvas){
+        var n=String(i+1).padStart(2,'0');
+        var fname=pages.length>1?'Oferta_Relampago_ALISTA_AHORRO_Hoja_'+n+'.png':'Oferta_Relampago_ALISTA_AHORRO.png';
+        descargarDataUrl(canvas.toDataURL('image/png'),fname);
+        return new Promise(function(resolve){setTimeout(resolve,350);});
+      });
+    }
+    var p=Promise.resolve();
+    pages.forEach(function(_,i){p=p.then(function(){return renderPage(i);});});
+    p.then(function(){cleanup();flash('ok',pages.length>1?'Imágenes generadas por hoja A4.':'Imagen generada.');})
+      .catch(function(e){cleanup();flash('err','No se pudo generar imagen: '+e.message);});
   }
 
   function ofertaCard(o){
@@ -4570,6 +4680,7 @@ function OfertasPreventistas(props){
         E('button',{className:'btn '+(flyerMode==='destacado'?'pri':''),onClick:function(){setFlyerMode('destacado');}},'Destacar 1')
       ),
       E('div',{className:'alert warn'},E('span',null,'Para flyer seleccionado o destacado, marcá las ofertas con el tilde "Usar en flyer seleccionado".')),
+      E('div',{className:'alert ok'},E('span',null,'En celular la vista previa se adapta para leerse mejor. Al exportar imagen o imprimir, siempre sale en formato A4.')),
       E('div',{className:'flyer-preview-wrap',ref:flyerRef},flyerPreview())
     )
   );
@@ -4671,6 +4782,7 @@ function AuditoriaRecorridos(props){
   var _v=useState([]),visitas=_v[0],setVisitas=_v[1];
   var _m=useState([]),movs=_m[0],setMovs=_m[1];
   var _c=useState([]),clientes=_c[0],setClientes=_c[1];
+  var _gp=useState([]),gpsRemotos=_gp[0],setGpsRemotos=_gp[1];
   var _fd=useState((new Date()).toISOString().slice(0,10)),fecha=_fd[0],setFecha=_fd[1];
   var _sel=useState('todos'),preventistaId=_sel[0],setPreventistaId=_sel[1];
   var _msg=useState(null),msg=_msg[0],setMsg=_msg[1];
@@ -4692,7 +4804,13 @@ function AuditoriaRecorridos(props){
     return u?(u.nombre||u.username):'—';
   }
   function gpsKeyFor(id){return 'gps_'+id+'_'+dateInputToGpsKey(fecha);}
-  function gpsPointsFor(id){return gl(gpsKeyFor(id),[]).filter(function(p){return p&&p.lat&&p.lng;});}
+  function gpsPointsFor(id){
+    var remote=gpsRemotos.filter(function(p){return String(p.usuario_id)===String(id)&&String(p.fecha_dia||'').slice(0,10)===fecha&&p.lat&&p.lng;})
+      .map(function(p){return {lat:parseFloat(p.lat),lng:parseFloat(p.lng),ts:parseInt(p.ts,10)||Date.parse(p.created_at||'')||0};})
+      .sort(function(a,b){return (a.ts||0)-(b.ts||0);});
+    if(remote.length)return remote;
+    return gl(gpsKeyFor(id),[]).filter(function(p){return p&&p.lat&&p.lng;});
+  }
   function distanciaKm(points){
     function rad(x){return x*Math.PI/180;}
     var km=0;
@@ -4718,6 +4836,7 @@ function AuditoriaRecorridos(props){
     dbGet('movimientos_cc').then(function(rows){if(Array.isArray(rows))setMovs(rows);}).catch(function(){});
     dbGet('movimientos_cc').then(function(rows){if(Array.isArray(rows))setMovs(rows);}).catch(function(){});
     dbGet('clientes').then(function(rows){if(Array.isArray(rows))setClientes(rows.map(dbToCli));}).catch(function(){});
+    dbGet('gps_puntos').then(function(rows){if(Array.isArray(rows))setGpsRemotos(rows);}).catch(function(){});
   }
   useEffect(function(){cargar();var iv=setInterval(cargar,15000);return function(){clearInterval(iv);};},[]);
 
@@ -4795,7 +4914,7 @@ function AuditoriaRecorridos(props){
         )
       ),
       E('div',{className:'alert warn',style:{marginBottom:12}},
-        E('span',null,'Nota: las visitas, cobros y negativas quedan guardadas en la base. La ruta GPS continua se ve completa si el recorrido fue registrado en este dispositivo; para verla desde cualquier PC conviene sincronizar puntos GPS a Supabase en una tabla de recorridos.')
+        E('span',null,'Las visitas, cobros, negativas y puntos GPS quedan guardados para control del administrador. Si no ves la ruta, verificá que el preventista haya iniciado el GPS y que esté ejecutado el SQL V35 de gps_puntos.')
       ),
       E('div',{className:'kpi-row'},
         E('div',{className:'kpi teal'},E('div',{className:'kpi-label'},'Clientes recorridos'),E('div',{className:'kpi-val'},Object.keys(clientesUnicos).length||visitasDia.length)),
