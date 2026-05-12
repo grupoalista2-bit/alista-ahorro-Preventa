@@ -1,0 +1,1 @@
+V40: cuenta corriente completa para preventista/admin, cobros con forma de cancelación, fecha y hora, resumen admin y alerta de más de 7 días de atraso.
