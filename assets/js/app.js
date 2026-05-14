@@ -188,23 +188,64 @@ function dbGet(table){
   return nextPage().catch(function(e){console.error('dbGet '+table,e);return all;});
 }
 
+// GET liviano: permite seleccionar solo columnas necesarias para pantallas rápidas.
+// Se usa especialmente en Clientes/Nuevo Pedido para no traer fotos/base64 ni campos pesados.
+function dbGetSelect(table,select,opts){
+  opts=opts||{};
+  var pageSize=opts.pageSize||1000;
+  var from=0;
+  var all=[];
+  var query=table+'?select='+encodeURIComponent(select||'*');
+  if(opts.filter)query+='&'+opts.filter;
+  if(opts.order)query+='&order='+encodeURIComponent(opts.order);
+  if(opts.limit)query+='&limit='+parseInt(opts.limit,10);
+  function nextPage(){
+    return sbFetch(query,{headers:{'Range-Unit':'items','Range':from+'-'+(from+pageSize-1)}})
+      .then(function(r){
+        if(!r.ok)return r.text().then(function(t){throw new Error('HTTP '+r.status+': '+t.slice(0,120));});
+        return r.json();
+      }).then(function(rows){
+        if(!Array.isArray(rows))return all;
+        all=all.concat(rows);
+        if(!opts.limit&&rows.length===pageSize){from+=pageSize;return nextPage();}
+        return all;
+      });
+  }
+  return nextPage().catch(function(e){console.error('dbGetSelect '+table,e);return all;});
+}
+
+var CLIENT_SELECT_LIGHT='id,nombre,apellido,nombre_fantasia,dir,tel,tipo_cc,lim_cc,deuda,estado,lat,lng,activo,inhabilitado,created_at,updated_at';
+function dbGetClientesLight(){
+  return dbGetSelect('clientes',CLIENT_SELECT_LIGHT,{order:'nombre.asc',pageSize:1000});
+}
+function dbSearchClientes(term){
+  term=String(term||'').trim();
+  if(term.length<2)return Promise.resolve([]);
+  var clean=term.replace(/[(),]/g,' ');
+  var pat=encodeURIComponent('*'+clean+'*');
+  var or='(nombre.ilike.'+pat+',apellido.ilike.'+pat+',nombre_fantasia.ilike.'+pat+',tel.ilike.'+pat+',dir.ilike.'+pat+')';
+  return sbFetch('clientes?select='+encodeURIComponent(CLIENT_SELECT_LIGHT)+'&or='+or+'&limit=80')
+    .then(function(r){if(!r.ok)return [];return r.json();})
+    .catch(function(){return [];});
+}
+
 
 // Search server-side in Supabase. Useful when the local list is incomplete or very large.
 function dbSearchArticulos(term){
   term=String(term||'').trim();
   if(term.length<2)return Promise.resolve([]);
+  var ART_SELECT_LIGHT='id,cod,cod_art,descripcion,precio,costo,estado';
   function one(t){
     var clean=String(t||'').trim().replace(/[(),]/g,' ');
     if(clean.length<2)return Promise.resolve([]);
     var pat=encodeURIComponent('*'+clean+'*');
-    var path='articulos?select=*&or=(descripcion.ilike.'+pat+',cod.ilike.'+pat+',cod_art.ilike.'+pat+')&limit=1000';
+    var path='articulos?select='+encodeURIComponent(ART_SELECT_LIGHT)+'&or=(descripcion.ilike.'+pat+',cod.ilike.'+pat+',cod_art.ilike.'+pat+')&limit=120';
     return sbFetch(path).then(function(r){
       if(!r.ok)return [];
       return r.json();
     }).catch(function(){return [];});
   }
   return one(term).then(function(rows){
-    // If exact search finds nothing, try a short prefix. This helps with lists that abbreviate COCA as COC.
     if(rows&&rows.length)return rows;
     var nt=normTxt(term);
     if(nt.length>=4)return one(nt.slice(0,3));
@@ -354,7 +395,7 @@ function dbToArt(r){return {id:r.id,cod:r.cod,codArt:r.cod_art||'',desc:r.descri
 
 // Map app client object → DB row
 function cliToDb(c){return {id:c.id,nombre:c.nombre,apellido:c.apellido,nombre_fantasia:c.nombreFantasia||null,dir:c.dir||'',tel:c.tel||'',tipo_cc:c.tipoCC||'Sin Tope',lim_cc:c.limCC||0,deuda:c.deuda||0,estado:c.estado||'activo',lat:c.lat||null,lng:c.lng||null,fotos:c.fotos||[]};}
-function dbToCli(r){return {id:r.id,nombre:r.nombre,apellido:r.apellido,nombreFantasia:r.nombre_fantasia||'',dir:r.dir,tel:r.tel,tipoCC:r.tipo_cc,limCC:parseFloat(r.lim_cc)||0,deuda:parseFloat(r.deuda)||0,estado:r.estado,lat:r.lat,lng:r.lng,fotos:r.fotos||[]};}
+function dbToCli(r){var estado=r.estado||((r.activo===false||r.inhabilitado===true)?'inactivo':'activo');return {id:r.id,nombre:r.nombre||'',apellido:r.apellido||'',nombreFantasia:r.nombre_fantasia||'',dir:r.dir||r.direccion||'',tel:r.tel||r.telefono||'',tipoCC:r.tipo_cc||r.tipo_cuenta_corriente||'Sin Tope',limCC:parseFloat(r.lim_cc||r.limite_cc)||0,deuda:parseFloat(r.deuda)||0,estado:estado,lat:r.lat||r.latitud||r.gps_lat,lng:r.lng||r.longitud||r.gps_lng,fotos:r.fotos||[]};}
 
 // Map app user → DB row
 function userToDb(u){return {id:u.id,auth_user_id:u.authUserId||u.auth_user_id||null,email:u.email||null,username:u.username,nombre:u.nombre,role:u.role,activo:u.activo!==false,permisos:u.permisos||{}};}
@@ -1052,6 +1093,96 @@ function gpsMapsText(lat,lng){
   return String(lat)+','+String(lng);
 }
 
+
+/* ═══════════════════════════
+   V43 — BALANCE DE RECORRIDO OFFLINE/ONLINE
+   Registra eventos de trabajo aunque no haya internet. Cuando vuelve conexión,
+   sincroniza automáticamente con Supabase.
+═══════════════════════════ */
+function auditPendingKey(){return 'aa_auditoria_pendiente_v43';}
+function auditSyncedKey(){return 'aa_auditoria_sync_ok_v43';}
+function auditGetPending(){return gl(auditPendingKey(),[]);}
+function auditSetPending(arr){sl(auditPendingKey(),arr||[]);}
+function auditAddLocal(ev){var a=auditGetPending();a.push(ev);auditSetPending(a.slice(-1000));}
+function auditGetSynced(){return gl(auditSyncedKey(),[]);}
+function auditAddSynced(ev){var a=auditGetSynced();a.push(ev);sl(auditSyncedKey(),a.slice(-500));}
+function auditLastGps(userId){return gl('gps_last_'+userId,null);}
+function auditBuildEvent(user,tipo,accion,opts){
+  opts=opts||{};
+  var gps=opts.gps||auditLastGps(user&&user.id);
+  var ts=Date.now();
+  var id=(opts.id||('ev_'+String((user&&user.id)||'u')+'_'+ts+'_'+Math.random().toString(36).slice(2,6)));
+  return {
+    id:id,
+    usuario_id:String((user&&user.id)||opts.usuario_id||''),
+    usuario_nombre:String((user&&(user.nombre||user.username))||opts.usuario_nombre||''),
+    rol:String((user&&user.role)||opts.rol||''),
+    fecha:nowStr(),
+    fecha_dia:(new Date(ts)).toISOString().slice(0,10),
+    hora:horaSolo(nowStr()),
+    ts:ts,
+    tipo:String(tipo||'evento'),
+    accion:String(accion||''),
+    cliente_id:opts.cliente_id||null,
+    cliente_nombre:opts.cliente_nombre||null,
+    pedido_id:opts.pedido_id||null,
+    monto:opts.monto!=null?parseFloat(opts.monto)||0:null,
+    resultado:opts.resultado||null,
+    observaciones:opts.observaciones||null,
+    lat:gps&&gps.lat!=null?parseFloat(gps.lat):null,
+    lng:gps&&gps.lng!=null?parseFloat(gps.lng):null,
+    accuracy:gps&&gps.acc!=null?parseFloat(gps.acc):null,
+    gps_estado:gps?'ok':'sin_gps',
+    sync_estado:'pendiente',
+    sync_ts:null
+  };
+}
+function auditEventToDb(ev){return {
+  id:ev.id,usuario_id:ev.usuario_id,usuario_nombre:ev.usuario_nombre,rol:ev.rol,
+  fecha:ev.fecha,fecha_dia:ev.fecha_dia,hora:ev.hora,ts:ev.ts,
+  tipo:ev.tipo,accion:ev.accion,cliente_id:ev.cliente_id,cliente_nombre:ev.cliente_nombre,
+  pedido_id:ev.pedido_id,monto:ev.monto,resultado:ev.resultado,observaciones:ev.observaciones,
+  lat:ev.lat,lng:ev.lng,accuracy:ev.accuracy,gps_estado:ev.gps_estado,
+  sync_estado:'sincronizado',sync_ts:(new Date()).toISOString()
+};}
+function auditRecord(user,tipo,accion,opts){
+  var ev=auditBuildEvent(user,tipo,accion,opts||{});
+  auditAddLocal(ev);
+  auditSyncPending();
+  return ev;
+}
+function auditSyncPending(){
+  var pend=auditGetPending();
+  if(!pend.length)return Promise.resolve({ok:true,count:0});
+  if(!navigator.onLine)return Promise.resolve({ok:false,offline:true,count:pend.length});
+  var left=[];
+  var chain=Promise.resolve();
+  pend.forEach(function(ev){
+    chain=chain.then(function(){
+      return dbUpsert('auditoria_eventos',auditEventToDb(ev)).then(function(){
+        ev.sync_estado='sincronizado';ev.sync_ts=(new Date()).toISOString();auditAddSynced(ev);
+      }).catch(function(){left.push(ev);});
+    });
+  });
+  return chain.then(function(){auditSetPending(left);return {ok:left.length===0,count:pend.length-left.length,pending:left.length};});
+}
+function auditLocalEventsForDate(fecha){
+  var synced=auditGetSynced(), pend=auditGetPending();
+  return synced.concat(pend).filter(function(e){return String(e.fecha_dia||'').slice(0,10)===fecha;});
+}
+function auditEnsureSyncLoop(user){
+  if(window.__aaAuditLoopStarted)return;
+  window.__aaAuditLoopStarted=true;
+  window.addEventListener('online',function(){auditSyncPending();});
+  setInterval(function(){auditSyncPending();},30000);
+  document.addEventListener('visibilitychange',function(){
+    if(document.visibilityState==='visible'){
+      if(user)auditRecord(user,'sistema','App reactivada / vuelve a primer plano',{resultado:navigator.onLine?'online':'offline'});
+      auditSyncPending();
+    }
+  });
+}
+
 /* ═══════════════════════════
    PDF BOLETA
 ═══════════════════════════ */
@@ -1401,6 +1532,7 @@ function useGPS(user){
     if(!info.puedeIniciar){setGpsErr(info.msg);return;}
     setGpsErr('');
     sl('gps_started_at_'+user.id,{ts:Date.now(),fecha:nowStr()});
+    auditRecord(user,'recorrido','Inicio / activación de GPS',{resultado:navigator.onLine?'online':'offline'});
     setGPSStatus(user.id,true);
     setGpsOn(true);
     function guardarPosicion(p){
@@ -1462,11 +1594,13 @@ function useGPS(user){
     setGpsOn(false);
     sl('gps_last_'+user.id,null);
     sl('gps_stopped_at_'+user.id,{ts:Date.now(),fecha:nowStr()});
+    auditRecord(user,'recorrido','Finalizó / apagó GPS',{resultado:navigator.onLine?'online':'offline'});
   }
 
   useEffect(function(){
     function onVisibleAgain(){
       if(document.visibilityState==='visible'&&getGPSStatus(user.id)){
+        auditRecord(user,'sistema','App reactivada con GPS activo',{resultado:navigator.onLine?'online':'offline'});
         // Al volver a la pantalla, reanuda wake lock y fuerza un punto inmediato.
         if(navigator.wakeLock){navigator.wakeLock.request('screen').then(function(lock){wakeRef.current=lock;}).catch(function(){});}
         if(navigator.geolocation){
@@ -1906,13 +2040,34 @@ function NuevoPedido(props){
   var _i=useState(null),msg=_i[0],setMsg=_i[1];
   var _j=useState([]),serverArtsPedido=_j[0],setServerArtsPedido=_j[1];
   var _k=useState(false),searchingPedido=_k[0],setSearchingPedido=_k[1];
+  var _cl=useState(false),loadingClientes=_cl[0],setLoadingClientes=_cl[1];
+  var _sc=useState([]),serverClisPedido=_sc[0],setServerClisPedido=_sc[1];
+  var _cs=useState(false),searchingClientes=_cs[0],setSearchingClientes=_cs[1];
   var _ofp=useState([]),ofertasPedido=_ofp[0],setOfertasPedido=_ofp[1];
 
   useEffect(function(){
-    dbGet('articulos').then(function(rows){if(rows)setArts(rows.map(dbToArt).filter(function(a){return a.estado==='activo';}));});
-    dbGet('clientes').then(function(rows){if(rows)setClis(rows.map(dbToCli).filter(function(c){return c.estado==='activo';}));});
+    // V42: no cargar todos los artículos al iniciar Nuevo Pedido.
+    // En celulares con listas grandes esto trababa al preventista.
+    // Ahora los artículos se buscan directamente en Supabase al escribir 2 letras.
+    setArts([]);
+    setLoadingClientes(true);
+    dbGetClientesLight().then(function(rows){if(rows)setClis(rows.map(dbToCli).filter(function(c){return c.estado==='activo';}));})
+      .finally(function(){setLoadingClientes(false);});
     dbGet('ofertas_preventistas').then(function(rows){if(rows)setOfertasPedido((Array.isArray(rows)?rows:[]).map(dbToOferta).filter(function(o){return ofertaVigente(o);}));}).catch(function(){});
   },[]);
+
+  useEffect(function(){
+    var term=(qCli||'').trim();
+    if(term.length<2){setServerClisPedido([]);setSearchingClientes(false);return;}
+    var cancel=false;
+    setSearchingClientes(true);
+    dbSearchClientes(term).then(function(rows){
+      if(cancel)return;
+      setServerClisPedido((rows||[]).map(dbToCli).filter(function(c){return c.estado==='activo';}));
+      setSearchingClientes(false);
+    }).catch(function(){if(!cancel)setSearchingClientes(false);});
+    return function(){cancel=true;};
+  },[qCli]);
 
   useEffect(function(){
     var term=(qArt||'').trim();
@@ -1982,6 +2137,7 @@ function NuevoPedido(props){
           flash('err','Error al guardar el pedido. Verificá la conexión y el SQL de Supabase.');
           return;
         }
+        auditRecord(user,'pedido','Pedido cargado',{cliente_id:cli.id,cliente_nombre:(cli.nombreFantasia||cli.nombre+' '+cli.apellido),pedido_id:ped.id,monto:total,resultado:'pedido_enviado',observaciones:'Pedido #'+n});
         flash('ok','✓ Pedido #'+n+' enviado a preparación.');
         setCli(null);setItems([]);setDesc(0);setNota('');setQCli('');
       }).catch(function(e){
@@ -1992,9 +2148,11 @@ function NuevoPedido(props){
     });
   }
 
-  var filtClis=clis.filter(function(c){
-    return c.estado==='activo'&&((c.nombre+' '+c.apellido).toLowerCase().includes(qCli.toLowerCase())||c.tel.includes(qCli));
-  });
+  var baseClisPedido=(qCli&&qCli.trim().length>=2)?mergeByIdOrCode(clis,serverClisPedido):clis;
+  var filtClis=baseClisPedido.filter(function(c){
+    var hay=(c.nombre+' '+c.apellido+' '+(c.nombreFantasia||'')+' '+(c.tel||'')+' '+(c.dir||'')).toLowerCase();
+    return c.estado==='activo'&&(!qCli||hay.indexOf(qCli.toLowerCase())>=0);
+  }).slice(0,80);
   var artBasePedido=qArt&&qArt.trim().length>=2?mergeByIdOrCode(arts,serverArtsPedido):arts;
   var filtArts=artBasePedido.map(function(a){return {a:a,s:artScore(a,qArt)};})
     .filter(function(x){return x.a.estado==='activo'&&qArt&&qArt.trim().length>=2&&x.s>0;})
@@ -2021,8 +2179,10 @@ function NuevoPedido(props){
               onChange:function(e){setQCli(e.target.value);setShowCli(true);},style:{flex:1}}),
             E('button',{className:'btn',onClick:function(){setShowCli(!showCli);}},showCli?'▲':'▼ Ver todos')
           ),
-          showCli&&E('div',{style:{maxHeight:200,overflowY:'auto',border:'1.5px solid var(--border)',borderRadius:8,padding:8}},
-            filtClis.length===0?E('div',{className:'empty'},'Sin resultados.'):
+          showCli&&E('div',{style:{maxHeight:260,overflowY:'auto',border:'1.5px solid var(--border)',borderRadius:8,padding:8}},
+            loadingClientes?E('div',{className:'empty'},'Cargando clientes…'):
+            searchingClientes?E('div',{className:'empty'},'Buscando clientes…'):
+            filtClis.length===0?E('div',{className:'empty'},qCli&&qCli.trim().length<2?'Escribí al menos 2 letras para buscar rápido.':'Sin resultados.'):
             filtClis.map(function(c){
               return E('button',{key:c.id,className:'cli-item',onClick:function(){setCli(c);setShowCli(false);setQCli('');}},
                 E('strong',null,c.nombreFantasia||c.nombre+' '+c.apellido),
@@ -2046,7 +2206,7 @@ function NuevoPedido(props){
         filtArts.length+' artículo'+(filtArts.length!==1?'s':'')+'encontrado'+(filtArts.length!==1?'s':'')+'.'
       ),
       (!qArt||qArt.trim().length<2)&&E('div',{style:{textAlign:'center',padding:'20px 0',color:'var(--txt2)',fontSize:13}},
-        '🔍 Escribí el nombre o código del artículo para buscarlo'
+        '🔍 Escribí al menos 2 letras. La búsqueda es rápida y no carga toda la lista en el teléfono.'
       ),
       filtArts.length>0&&E('div',{className:'art-list'},
         filtArts.map(function(a){
@@ -2291,6 +2451,7 @@ function MapaGPS(props){
       observaciones:obsText.trim()||null
     };
     dbUpsert('visitas',visita).then(function(){
+      auditRecord(user,'visita','Visita registrada',{cliente_id:cli.id,cliente_nombre:(cli.nombreFantasia||cli.nombre+' '+cli.apellido),resultado:'visitado',observaciones:visita.observaciones||''});
       setVisitasHoy(function(v){return v.concat([visita]);});
       setVisitaModal(null);
       flash('ok','Visita a '+cli.nombre+' registrada.');
@@ -3709,7 +3870,7 @@ function Clientes(props){
   var _f=useState({id:'',nombre:'',apellido:'',nombreFantasia:'',dir:'',tel:'',tipoCC:'Sin Tope',limCC:0,deuda:0,estado:'activo',lat:null,lng:null,fotos:[]}),form=_f[0],setForm=_f[1];
   var _msg=useState(null),msg=_msg[0],setMsg=_msg[1];
 
-  function reload(){dbGet('clientes').then(function(rows){if(Array.isArray(rows))setClis(rows.map(dbToCli));});}
+  function reload(){dbGetClientesLight().then(function(rows){if(Array.isArray(rows))setClis(rows.map(dbToCli));});}
   useEffect(function(){reload();},[]);
   function flash(t,m){setMsg({t:t,m:m});setTimeout(function(){setMsg(null);},4500);}
   function F(k,v){setForm(function(x){return Object.assign({},x,{[k]:v});});}
@@ -3873,7 +4034,7 @@ function CuentasCorrientes(props){
   var _msg=useState(null),msg=_msg[0],setMsg=_msg[1];
 
   function reload(){
-    dbGet('clientes').then(function(rows){if(Array.isArray(rows))setClis(rows.map(dbToCli));});
+    dbGetClientesLight().then(function(rows){if(Array.isArray(rows))setClis(rows.map(dbToCli));});
     dbGet('movimientos_cc').then(function(rows){if(Array.isArray(rows))setMovs(rows);}).catch(function(){});
     dbGet('visitas').then(function(rows){if(Array.isArray(rows))setVisitas(rows);}).catch(function(){});
   }
@@ -3915,13 +4076,13 @@ function CuentasCorrientes(props){
     };
     dbUpsert('movimientos_cc',mov).then(function(){return dbUpdate('clientes',c.id,{deuda:saldoDespues});}).then(function(){
       if(gps){return dbUpsert('visitas',{id:uid(),cliente_id:c.id,cliente_nombre:c.nombre+' '+c.apellido,preventista_id:user.id,preventista_nombre:user.nombre||user.username,fecha:fechaHora,lat:gps.lat,lng:gps.lng,observaciones:'Pago recibido: $'+$(monto)+' · '+payForm.forma+' · Saldo: $'+$(saldoDespues)});}
-    }).then(function(){setPayCli(null);reload();flash('ok','Pago registrado con fecha, hora y forma de cancelación.');}).catch(function(e){flash('err','Error al registrar pago: '+e.message);});
+    }).then(function(){auditRecord(user,'cobro','Cobro registrado',{cliente_id:c.id,cliente_nombre:(c.nombreFantasia||c.nombre+' '+c.apellido),monto:monto,resultado:'cobrado',observaciones:'Forma: '+payForm.forma+' · Saldo: $'+$(saldoDespues)});setPayCli(null);reload();flash('ok','Pago registrado con fecha, hora y forma de cancelación.');}).catch(function(e){flash('err','Error al registrar pago: '+e.message);});
   }
   function guardarNegativa(){
     var c=refCli;if(!refMotivo.trim()){flash('err','Escribí el motivo por el que no pagó.');return;}
     var gps=gl('gps_last_'+user.id,null);
     var visita={id:uid(),cliente_id:c.id,cliente_nombre:c.nombre+' '+c.apellido,preventista_id:user.id,preventista_nombre:user.nombre||user.username,fecha:nowStr(),lat:gps?gps.lat:null,lng:gps?gps.lng:null,observaciones:'SE NEGÓ A PAGAR: '+refMotivo.trim()};
-    dbUpsert('visitas',visita).then(function(){setRefCli(null);setRefMotivo('');reload();flash('warn','Negativa de pago registrada.');}).catch(function(e){flash('err','Error al guardar negativa: '+e.message);});
+    dbUpsert('visitas',visita).then(function(){auditRecord(user,'visita','Negativa de pago',{cliente_id:c.id,cliente_nombre:(c.nombreFantasia||c.nombre+' '+c.apellido),resultado:'no_pago',observaciones:refMotivo.trim()});setRefCli(null);setRefMotivo('');reload();flash('warn','Negativa de pago registrada.');}).catch(function(e){flash('err','Error al guardar negativa: '+e.message);});
   }
 
   var deudores=clis.filter(function(c){return (c.deuda||0)>0;}).filter(function(c){var hay=normTxt([c.nombre,c.apellido,c.nombreFantasia,c.dir,c.tel].join(' '));return !q||hay.indexOf(normTxt(q))>=0;}).sort(function(a,b){return b.deuda-a.deuda;});
@@ -4034,7 +4195,7 @@ function Estadisticas(){
   var _c=useState([]),clis=_c[0],setClis=_c[1];
   useEffect(function(){
     dbGet('pedidos').then(function(rows){if(rows)setPedidos(rows.map(dbToPed));});
-    dbGet('clientes').then(function(rows){if(rows)setClis(rows.map(dbToCli));});
+    dbGetClientesLight().then(function(rows){if(rows)setClis(rows.map(dbToCli));});
   },[]);
   var filtered=pedidos.filter(function(p){return inPeriod(p,period);});
   var finalizados=filtered.filter(function(p){return p.estado==='finalizado';});
@@ -4492,6 +4653,7 @@ function BottomNav(props){
     item('ofertas','🔥','Ofertas Relámpago'),
     item('mis-pedidos','📦','Mis Pedidos',readyCount),
     item('clientes','👥','Clientes'),
+    item('cuentas-corrientes','💳','CC'),
     item('mapa-gps','🗺️','GPS')
   );
 
@@ -4508,6 +4670,7 @@ function BottomNav(props){
     item('cola-prep','⚙️','Preparar',pendCount),
     item('todos-pedidos','📋','Pedidos'),
     item('clientes','👥','Clientes'),
+    item('cuentas-corrientes','💳','CC'),
     item('ofertas','🔥','Ofertas Relámpago'),
     item('mapa-admin','🗺️','GPS'),
     item('auditoria','🧭','Auditoría')
@@ -4901,6 +5064,7 @@ function AuditoriaRecorridos(props){
   var _m=useState([]),movs=_m[0],setMovs=_m[1];
   var _c=useState([]),clientes=_c[0],setClientes=_c[1];
   var _gp=useState([]),gpsRemotos=_gp[0],setGpsRemotos=_gp[1];
+  var _ae=useState([]),auditEventos=_ae[0],setAuditEventos=_ae[1];
   var _fd=useState((new Date()).toISOString().slice(0,10)),fecha=_fd[0],setFecha=_fd[1];
   var _sel=useState('todos'),preventistaId=_sel[0],setPreventistaId=_sel[1];
   var _msg=useState(null),msg=_msg[0],setMsg=_msg[1];
@@ -4953,8 +5117,9 @@ function AuditoriaRecorridos(props){
     dbGet('visitas').then(function(rows){if(Array.isArray(rows))setVisitas(rows);}).catch(function(){});
     dbGet('movimientos_cc').then(function(rows){if(Array.isArray(rows))setMovs(rows);}).catch(function(){});
     dbGet('movimientos_cc').then(function(rows){if(Array.isArray(rows))setMovs(rows);}).catch(function(){});
-    dbGet('clientes').then(function(rows){if(Array.isArray(rows))setClientes(rows.map(dbToCli));}).catch(function(){});
+    dbGetClientesLight().then(function(rows){if(Array.isArray(rows))setClientes(rows.map(dbToCli));}).catch(function(){});
     dbGet('gps_puntos').then(function(rows){if(Array.isArray(rows))setGpsRemotos(rows);}).catch(function(){});
+    dbGet('auditoria_eventos').then(function(rows){if(Array.isArray(rows))setAuditEventos(rows.concat(auditLocalEventsForDate(fecha)));}).catch(function(){setAuditEventos(auditLocalEventsForDate(fecha));});
   }
   useEffect(function(){cargar();var iv=setInterval(cargar,15000);return function(){clearInterval(iv);};},[]);
 
@@ -4966,6 +5131,12 @@ function AuditoriaRecorridos(props){
     .filter(function(v){return preventistaId==='todos'||v.preventista_id===preventistaId;});
   var movsDia=movs.filter(function(m){return fechaCoincideAudit(m.fecha,fecha);})
     .filter(function(m){return preventistaId==='todos'||m.usuario_id===preventistaId;});
+  var eventosDia=auditEventos.filter(function(e){return String(e.fecha_dia||'').slice(0,10)===fecha;})
+    .filter(function(e){return preventistaId==='todos'||String(e.usuario_id)===String(preventistaId);});
+  var eventosPedido=eventosDia.filter(function(e){return e.tipo==='pedido';}).length;
+  var eventosVisita=eventosDia.filter(function(e){return e.tipo==='visita';}).length;
+  var eventosCobro=eventosDia.filter(function(e){return e.tipo==='cobro';}).length;
+  var eventosSinGPS=eventosDia.filter(function(e){return e.gps_estado!=='ok';}).length;
 
   var clientesUnicos={};
   visitasDia.forEach(function(v){if(v.cliente_id)clientesUnicos[v.cliente_id]=true;});
@@ -5013,7 +5184,8 @@ function AuditoriaRecorridos(props){
       return {Fecha:v.fecha,Preventista:v.preventista_nombre||preventistaNombre(v.preventista_id),Cliente:clienteName(v),GPS:(v.lat&&v.lng)?(v.lat+','+v.lng):'',Observaciones:v.observaciones||''};
     });
     var rowsCobros=cobros.map(function(m){return {Fecha:m.fecha,Preventista:m.usuario_nombre||preventistaNombre(m.usuario_id),Cliente:m.cliente_nombre,Monto:m.monto,Forma:m.forma_pago||'',Referencia:m.referencia||'',Observaciones:m.observaciones||''};});
-    exportXLSX([{name:'Visitas',rows:rows},{name:'Cobros',rows:rowsCobros}], 'Auditoria_Recorridos_'+fecha+'.xlsx');
+    var rowsEventos=eventosDia.map(function(e){return {Fecha:e.fecha,Hora:e.hora,Preventista:e.usuario_nombre,Tipo:e.tipo,Accion:e.accion,Cliente:e.cliente_nombre||'',Pedido:e.pedido_id||'',Monto:e.monto||'',GPS:e.lat&&e.lng?(e.lat+','+e.lng):e.gps_estado,Estado:e.sync_estado||'',Observaciones:e.observaciones||''};});
+    exportXLSX([{name:'Eventos balance',rows:rowsEventos},{name:'Visitas',rows:rows},{name:'Cobros',rows:rowsCobros}], 'Auditoria_Recorridos_'+fecha+'.xlsx');
   }
 
   return E('div',null,
@@ -5041,6 +5213,11 @@ function AuditoriaRecorridos(props){
         E('div',{className:'kpi red'},E('div',{className:'kpi-label'},'Negativas de pago'),E('div',{className:'kpi-val'},negativas.length)),
         E('div',{className:'kpi orange'},E('div',{className:'kpi-label'},'Pedidos creados'),E('div',{className:'kpi-val'},pedidosCreados)),
         E('div',{className:'kpi purple'},E('div',{className:'kpi-label'},'Entregados / rechazados'),E('div',{className:'kpi-val'},pedidosEntregados+' / '+pedidosRechazados))
+      ),
+      E('div',{className:'kpi-row'},
+        E('div',{className:'kpi teal'},E('div',{className:'kpi-label'},'Eventos balance'),E('div',{className:'kpi-val'},eventosDia.length)),
+        E('div',{className:'kpi orange'},E('div',{className:'kpi-label'},'Pedidos / visitas / cobros'),E('div',{className:'kpi-val'},eventosPedido+' / '+eventosVisita+' / '+eventosCobro)),
+        E('div',{className:'kpi red'},E('div',{className:'kpi-label'},'Eventos sin GPS'),E('div',{className:'kpi-val'},eventosSinGPS))
       )
     ),
 
@@ -5086,6 +5263,23 @@ function AuditoriaRecorridos(props){
             E('td',null,(v.lat&&v.lng)?E('a',{href:'https://www.google.com/maps?q='+v.lat+','+v.lng,target:'_blank'},'Abrir mapa'):'—')
           );
         }):E('tr',null,E('td',{colSpan:6,className:'empty'},'No hay visitas registradas.')))
+      ))
+    ),
+
+    E('div',{className:'card'},
+      E('div',{className:'card-hd'},E('div',{className:'card-title'},'🧾 Balance de actividad offline/online')),
+      E('div',{className:'alert ok'},E('span',null,'Estos eventos se guardan en el teléfono aunque no haya internet y se sincronizan cuando vuelve la conexión. El GPS acompaña, pero no bloquea el registro.')),
+      E('div',{className:'tw'},E('table',null,
+        E('thead',null,E('tr',null,E('th',null,'Hora'),E('th',null,'Preventista'),E('th',null,'Tipo'),E('th',null,'Acción'),E('th',null,'Cliente'),E('th',null,'GPS'),E('th',null,'Estado'))),
+        E('tbody',null,eventosDia.length?eventosDia.sort(function(a,b){return (a.ts||0)-(b.ts||0);}).map(function(e){return E('tr',{key:e.id},
+          E('td',null,e.hora||horaSolo(e.fecha)),
+          E('td',null,e.usuario_nombre||preventistaNombre(e.usuario_id)),
+          E('td',null,E('span',{className:'badge on'},e.tipo||'evento')),
+          E('td',null,e.accion||'—'),
+          E('td',null,e.cliente_nombre||'—'),
+          E('td',null,(e.lat&&e.lng)?E('a',{href:'https://www.google.com/maps?q='+e.lat+','+e.lng,target:'_blank'},'Abrir mapa'):(e.gps_estado||'sin_gps')),
+          E('td',null,e.sync_estado||'sincronizado')
+        );}):E('tr',null,E('td',{colSpan:7,className:'empty'},'Todavía no hay eventos de balance para la fecha seleccionada.')))
       ))
     ),
 
@@ -5136,7 +5330,7 @@ function App(){
   useEffect(function(){
     authRestore().then(function(profile){if(profile)setUser(profile);setAuthChecked(true);});
   },[]);
-  useEffect(function(){if(user)boot();},[user&&user.id]);
+  useEffect(function(){if(user){boot();auditEnsureSyncLoop(user);auditRecord(user,'sistema','Inicio de sesión / sesión activa',{resultado:navigator.onLine?'online':'offline'});auditSyncPending();}},[user&&user.id]);
 
   if(!authChecked)return E('div',{className:'login-bg'},E('div',{className:'login-box'},E('div',{className:'login-brand-name'},E('em',null,'ALISTA '),'AHORRO'),E('div',{style:{marginTop:16,color:'var(--txt2)'}},'Verificando sesión segura…')));
   if(!user)return E(Login,{onLogin:setUser});
