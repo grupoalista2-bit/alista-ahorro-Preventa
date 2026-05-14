@@ -1,0 +1,7 @@
+V42 - Rendimiento preventa
+- Nuevo Pedido ya no carga todos los artículos al iniciar.
+- Búsqueda de artículos directa y liviana en Supabase desde 2 letras.
+- Se limita el resultado para evitar trabas en celular.
+- Preventista ve Cuentas Corrientes en el menú inferior del teléfono.
+- Administrador también tiene acceso rápido a CC en móvil.
+- SQL de índices para búsquedas rápidas de clientes, artículos y movimientos.

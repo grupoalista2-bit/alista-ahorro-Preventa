@@ -1,0 +1,1 @@
+V39: al importar lista nueva, si una oferta no coincide con ningún artículo nuevo, se pausa/conserva según la elección inicial y queda marcada como REVISAR / coincidencia dudosa.

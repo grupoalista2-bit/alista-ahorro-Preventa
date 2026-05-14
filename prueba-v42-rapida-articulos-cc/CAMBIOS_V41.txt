@@ -1,0 +1,1 @@
+V41: mejora de velocidad. Nuevo Pedido y Clientes cargan datos livianos sin fotos/base64, búsqueda de clientes en Supabase, límite inicial de resultados y SQL de índices.
