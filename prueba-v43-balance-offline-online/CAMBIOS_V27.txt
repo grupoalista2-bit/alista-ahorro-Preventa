@@ -1,0 +1,11 @@
+ALISTA AHORRO V28 - Ofertas Relámpago e importación segura
+
+Cambio principal:
+- Al importar una lista nueva de Excel, la app pregunta si querés desactivar las ofertas relámpago relámpago actuales.
+- Si aceptás, las ofertas relámpago quedan pausadas, no borradas.
+- Si cancelás esa segunda pregunta, las ofertas relámpago se conservan activas.
+- Esto evita que el preventista venda ofertas relámpago viejas con precios desactualizados.
+
+Recordatorio:
+- La tabla de ofertas es ofertas_preventistas.
+- No hace falta ejecutar SQL nuevo si ya ejecutaste el SQL V26 de ofertas.

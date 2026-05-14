@@ -1,0 +1,6 @@
+V32 - Formato horario 24 horas
+
+- Se reemplazó el formato AM/PM por formato 24 horas.
+- Nuevos registros se guardan como dd/mm/aaaa HH:mm:ss.
+- Se ajustó la lectura de fecha/hora para mantener compatibilidad con registros anteriores.
+- No requiere SQL nuevo.
