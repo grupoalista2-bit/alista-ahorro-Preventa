@@ -1,0 +1,6 @@
+ALISTA AHORRO V33 - Ajustes finales
+
+1. Celular: mejora de scroll con un dedo en páginas, modales, tablas y mapas.
+2. Clientes: botón + Nuevo Cliente visible y ancho completo en pantallas chicas.
+3. Flyer de Ofertas Relámpago: al exportar imagen, genera una imagen PNG por cada hoja A4 en lugar de una imagen larga única.
+4. Sin cambios SQL requeridos.
