@@ -17,3 +17,19 @@ Ejecutar en Supabase:
 `supabase/sql/alista_ahorro_v43_balance_offline_online.sql`
 
 No borra datos.
+
+
+## V47
+Corrección de unidades vendidas y soporte para columna PESABLE en Excel.
+
+
+## V47
+Agrega Jornada / Caja por turno: apertura obligatoria para preventistas, cierre con resumen de efectivo, transferencias, cuenta corriente, cobros y total del turno.
+
+
+## V51
+Corrección de facturación por kg: productos pesables desde Excel, decimales en pedido/preparación y exportación de unidades vendidas con tipo KG/UNIDAD.
+
+
+## V52
+La venta por kg solo se habilita para artículos con PESABLE = SI en el Excel. Los demás artículos quedan por unidad.

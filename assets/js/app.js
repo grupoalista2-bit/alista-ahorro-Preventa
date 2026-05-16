@@ -234,7 +234,7 @@ function dbSearchClientes(term){
 function dbSearchArticulos(term){
   term=String(term||'').trim();
   if(term.length<2)return Promise.resolve([]);
-  var ART_SELECT_LIGHT='id,cod,cod_art,descripcion,precio,costo,estado';
+  var ART_SELECT_LIGHT='id,cod,cod_art,descripcion,precio,costo,estado,pesable';
   function one(t){
     var clean=String(t||'').trim().replace(/[(),]/g,' ');
     if(clean.length<2)return Promise.resolve([]);
@@ -390,8 +390,9 @@ function dbUpdate(table,id,data){
 }
 
 // Map app article object → DB row
-function artToDb(a){return {id:a.id,cod:a.cod,cod_art:a.codArt||'',descripcion:a.desc,precio:a.precio||0,costo:a.costo||0,estado:a.estado||'activo'};}
-function dbToArt(r){return {id:r.id,cod:r.cod,codArt:r.cod_art||'',desc:r.descripcion,precio:parseFloat(r.precio)||0,costo:parseFloat(r.costo)||0,estado:r.estado};}
+function boolPesable(v){var x=normTxt(v);return v===true||x==='si'||x==='sí'||x==='s'||x==='true'||x==='verdadero'||x==='yes'||x==='y'||x==='1'||x==='x'||x==='kg'||x==='kilo'||x==='kilos'||x==='pesable'||x==='balanza'||x==='por kg';}
+function artToDb(a){return {id:a.id,cod:a.cod,cod_art:a.codArt||'',descripcion:a.desc,precio:a.precio||0,costo:a.costo||0,estado:a.estado||'activo',pesable:!!a.pesable};}
+function dbToArt(r){return {id:r.id,cod:r.cod,codArt:r.cod_art||'',desc:r.descripcion,precio:parseFloat(r.precio)||0,costo:parseFloat(r.costo)||0,estado:r.estado,pesable:!!r.pesable};}
 
 // Map app client object → DB row
 function cliToDb(c){return {id:c.id,nombre:c.nombre,apellido:c.apellido,nombre_fantasia:c.nombreFantasia||null,dir:c.dir||'',tel:c.tel||'',tipo_cc:c.tipoCC||'Sin Tope',lim_cc:c.limCC||0,deuda:c.deuda||0,estado:c.estado||'activo',lat:c.lat||null,lng:c.lng||null,fotos:c.fotos||[]};}
@@ -588,7 +589,8 @@ function pedToDb(p){return {
   fecha_entregado:p.fechaEntregado||null,gps_creacion:p.gpsCreacion||null,
   rendicion:p.rendicion||null,devoluciones:p.devoluciones||[],
   cancelado_por:p.canceladoPor||null,cancelado_fecha:p.canceladoFecha||null,
-  cancelado_motivo:p.canceladoMotivo||null
+  cancelado_motivo:p.canceladoMotivo||null,
+  turno_id:p.turnoId||p.turno_id||null
 };}
 function dbToPed(r){return {
   id:r.id,nPedido:r.n_pedido,fecha:r.fecha,estado:r.estado,
@@ -601,7 +603,7 @@ function dbToPed(r){return {
   fechaPreparado:r.fecha_preparado,fechaRetiro:r.fecha_retiro,fechaEntregado:r.fecha_entregado,
   gpsCreacion:r.gps_creacion,rendicion:r.rendicion||null,devoluciones:r.devoluciones||[],
   canceladoPor:r.cancelado_por||null,canceladoFecha:r.cancelado_fecha||null,
-  canceladoMotivo:r.cancelado_motivo||null
+  canceladoMotivo:r.cancelado_motivo||null,turnoId:r.turno_id||null
 };}
 
 /* ═══════════════════════════
@@ -709,6 +711,7 @@ var ART_ALIAS_COD=['CODIGO_PROPIO','CODIGO PROPIO','CODIGO','CÓDIGO','COD','COD
 var ART_ALIAS_CODART=['COD_ART','COD ART','CODIGO_ARTICULO','CODIGO ARTICULO','CÓDIGO ARTÍCULO','Cód.Artículo','Cod Articulo','CODIGO INTERNO','COD INTERNO'];
 var ART_ALIAS_DESC=['DESCRIPCION','DESCRIPCIÓN','Descripcion','Descripción','NOMBRE','Nombre','PRODUCTO','ARTICULO','ARTÍCULO','DETALLE','DESCRIPCION ARTICULO','DESCRIPCIÓN ARTÍCULO'];
 var ART_ALIAS_PRECIO=['P_MAYORISTA','P MAYORISTA','P.MAYORISTA','PMAYORISTA','PRECIO_MAYORISTA','PRECIO MAYORISTA','MAYORISTA','PUBLICO','PÚBLICO','PUBLICO.','P_PUBLICO','P PUBLICO','PVP','PRECIO_PUBLICO','PRECIO PÚBLICO','PRECIO PUBLICO','PRECIO AL PUBLICO','PRECIO AL PÚBLICO','Precio al Público','Precio al Publico','PRECIO_VENTA','PRECIO VENTA','Precio de Venta','Precio Venta','P. VENTA','P VENTA','PRECIO_BASE','PRECIO BASE','Precio Base','PRECIO','Precio','VENTA','LISTA','PRECIO LISTA','P_LISTA'];
+var ART_ALIAS_PESABLE=['PESABLE','PESABLE?','CPESABLE','C PESABLE','ES_PESABLE','ES PESABLE','BALANZA','POR KG','POR_KG','KG','PESO','VENTA POR KG','SE VENDE POR KG','SE_VENDE_POR_KG','PESABLE SI NO','PESABLE_SI_NO'];
 var ART_ALIAS_COSTO=['COSTO_CON_IVA','COSTO CON IVA','COSTO CON I.V.A.','COSTO_IVA','COSTO IVA','COSTO','Costo','PRECIO_COSTO','PRECIO COSTO','Precio de Costo','Precio Costo','COSTO FINAL','COSTO UNITARIO','P_COSTO'];
 
 function esHeaderParecido(valor, aliases){
@@ -852,6 +855,80 @@ function inPeriod(v,period){
   return true;
 }
 
+
+function pedidoEsVendido(p){return p&&(p.estado==='listo_entrega'||p.estado==='en_transito'||p.estado==='entregado'||p.estado==='finalizado');}
+function pedidoFechaComercial(p){return p&&((p.fechaEntregado||p.fechaPreparado||p.fecha)||'');}
+function inPeriodPedido(p,period){return inPeriod({fecha:pedidoFechaComercial(p)},period);}
+function isoToDate(v){if(!v)return null;var p=String(v).slice(0,10).split('-');if(p.length!==3)return null;return new Date(+p[0],+p[1]-1,+p[2]);}
+function fechaARToIso(v){v=String(v||'').trim();var m=v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);if(m)return m[3]+'-'+pad2(+m[2])+'-'+pad2(+m[1]);if(/^\d{4}-\d{2}-\d{2}/.test(v))return v.slice(0,10);return '';}
+function fechaEnRangoISO(fecha,desde,hasta){var iso=fechaARToIso(fecha);if(!iso)return false;return (!desde||iso>=desde)&&(!hasta||iso<=hasta);}
+function rangeLabel(desde,hasta){return desde===hasta?desde:(desde+' a '+hasta);}
+
+
+/* ═══════════════════════════
+   V47 — JORNADA / CAJA POR TURNO
+═══════════════════════════ */
+function parseARDateTime(v){
+  if(!v)return new Date(0);
+  v=String(v).trim();
+  var m=v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if(m)return new Date(+m[3],+m[2]-1,+m[1],+(m[4]||0),+(m[5]||0),+(m[6]||0));
+  var d=new Date(v);return isNaN(d.getTime())?new Date(0):d;
+}
+function fechaEntreTurno(fecha,ini,fin){
+  var d=parseARDateTime(fecha),a=parseARDateTime(ini),b=fin?parseARDateTime(fin):new Date();
+  return d>=a&&d<=b;
+}
+function turnoToDb(t){
+  var o={
+    id:t.id,usuario_id:t.usuarioId||t.usuario_id,usuario_nombre:t.usuarioNombre||t.usuario_nombre||'',
+    fecha_inicio:t.fechaInicio||t.fecha_inicio,fecha_cierre:t.fechaCierre||t.fecha_cierre||null,
+    estado:t.estado||'abierto',gps_inicio:t.gpsInicio||t.gps_inicio||null,gps_cierre:t.gpsCierre||t.gps_cierre||null,
+    resumen:t.resumen||{},observaciones:t.observaciones||''
+  };
+  // No enviar created_at/updated_at en null: Supabase debe completar defaults.
+  if(t.created_at)o.created_at=t.created_at;
+  if(t.updated_at)o.updated_at=t.updated_at;
+  return o;
+}
+function dbToTurno(r){return {
+  id:r.id,usuarioId:r.usuario_id,usuarioNombre:r.usuario_nombre||'',fechaInicio:r.fecha_inicio,fechaCierre:r.fecha_cierre,
+  estado:r.estado||'abierto',gpsInicio:r.gps_inicio||null,gpsCierre:r.gps_cierre||null,resumen:r.resumen||{},observaciones:r.observaciones||''
+};}
+function turnoActivoLocal(userId){return gl('turno_activo_'+userId,null);}
+function setTurnoActivoLocal(userId,t){if(t)sl('turno_activo_'+userId,t);else localStorage.removeItem('turno_activo_'+userId);}
+function getTurnoActivo(user){
+  return dbGetSelect('turnos_jornada','*',{filter:'usuario_id=eq.'+encodeURIComponent(user.id)+'&estado=eq.abierto',order:'fecha_inicio.desc',limit:1})
+    .then(function(rows){var t=rows&&rows[0]?dbToTurno(rows[0]):turnoActivoLocal(user.id);if(t&&t.estado==='abierto')setTurnoActivoLocal(user.id,t);return t;})
+    .catch(function(){return turnoActivoLocal(user.id);});
+}
+function resumenTurnoDesdeDatos(turno,pedidos,movs){
+  var ini=turno.fechaInicio,fin=turno.fechaCierre||nowStr();
+  var peds=(pedidos||[]).filter(function(p){return p.preventistaId===turno.usuarioId&&fechaEntreTurno(p.fechaEntregado||p.fechaPreparado||p.fecha,ini,fin)&&['entregado','finalizado','listo_entrega','en_transito'].indexOf(p.estado)>=0;});
+  var efectivo=0,transferencia=0,cc=0,total=0,cancelados=0;
+  var trans=[],ccs=[],efes=[];
+  peds.forEach(function(p){
+    var r=p.rendicion||{};var cli=(p.cliente&&((p.cliente.nombreFantasia||'')||((p.cliente.nombre||'')+' '+(p.cliente.apellido||''))))||'Cliente';
+    var e=parseFloat(r.efectivo)||0,tr=parseFloat(r.transferencia)||0,c=parseFloat(r.cuentaCorriente)||0,ta=parseFloat(r.totalARendir||p.total)||0;
+    efectivo+=e;transferencia+=tr;cc+=c;total+=ta;
+    if(e>0)efes.push({pedido:p.nPedido,cliente:cli,monto:e,fecha:p.fechaEntregado||p.fecha});
+    if(tr>0)trans.push({pedido:p.nPedido,cliente:cli,monto:tr,datos:r.datosTrans||'',fecha:p.fechaEntregado||p.fecha});
+    if(c>0)ccs.push({pedido:p.nPedido,cliente:cli,monto:c,fecha:p.fechaEntregado||p.fecha});
+    if(p.estado==='cancelado')cancelados++;
+  });
+  var cobrosCC=(movs||[]).filter(function(m){return m.usuario_id===turno.usuarioId&&String(m.tipo||'')==='credito'&&fechaEntreTurno(m.fecha,ini,fin);});
+  var cobrosEfectivo=0,cobrosTransferencia=0,cobrosOtros=0;
+  var cobrosDetalle=cobrosCC.map(function(m){var f=String(m.forma_pago||'').toLowerCase();var monto=parseFloat(m.monto)||0;if(f.indexOf('transfer')>=0)cobrosTransferencia+=monto;else if(f.indexOf('efect')>=0)cobrosEfectivo+=monto;else cobrosOtros+=monto;return {cliente:m.cliente_nombre,monto:monto,forma:m.forma_pago||'',referencia:m.referencia||'',fecha:m.fecha};});
+  return {
+    desde:ini,hasta:fin,pedidos:peds.length,cancelados:cancelados,totalVendido:total,
+    efectivo:efectivo,transferencia:transferencia,cuentaCorriente:cc,
+    cobrosCC:cobrosCC.length,cobrosEfectivo:cobrosEfectivo,cobrosTransferencia:cobrosTransferencia,cobrosOtros:cobrosOtros,
+    totalCaja:efectivo+transferencia+cobrosEfectivo+cobrosTransferencia+cobrosOtros,
+    totalGeneral:efectivo+transferencia+cc+cobrosEfectivo+cobrosTransferencia+cobrosOtros,
+    efectivoDetalle:efes,transferenciasDetalle:trans,ccDetalle:ccs,cobrosDetalle:cobrosDetalle
+  };
+}
+
 function getMaxDesc(userId,userObj){
   var cfg=gl('cfg',{descGlobal:5,descXUser:{}});
   var hardMax=10; // regla comercial: nadie puede superar el 10%
@@ -865,6 +942,11 @@ function getMaxDesc(userId,userObj){
   return Math.min(hardMax,Math.max(0,cfg.descGlobal!==undefined?parseFloat(cfg.descGlobal)||0:5));
 }
 function itemQtyFinal(it){return it.cantFinal!==undefined?parseFloat(it.cantFinal)||0:parseFloat(it.cant)||0;}
+function itemEsPesable(it){return !!(it&&it.pesable);}
+function itemPermiteKg(it){return !!(it&&(it.canPesable||it.pesableCatalogo||it.permiteKg));}
+function qtyStep(it){return itemEsPesable(it)?'0.001':'1';}
+function qtyLabel(it){return itemEsPesable(it)?'kg':'un.';}
+function normalizarCantidad(v,pesable,min){var n=parseFloat(String(v).replace(',','.'));if(!isFinite(n))n=(min||0);n=Math.max(min||0,n);return pesable?Math.round(n*1000)/1000:Math.round(n);}
 function itemCostoUnit(it){return Math.max(0,parseFloat(it&&it.costo)||0);}
 function itemPrecioUnit(it){return Math.max(0,parseFloat(it&&it.pu)||0);}
 function artPrecioPublicoUnit(a){
@@ -914,6 +996,15 @@ function normalizePedidoItemPrecio(it,catalogo){
     x.pu=puActual;
   }
   if(precioPublico>0)x.precioPublico=precioPublico;
+  // V52: la venta por kg solo queda habilitada si el artículo del catálogo
+  // está marcado como pesable. Si no es pesable, se fuerza venta por unidad.
+  if(art){
+    var teniaPesable=x.pesable;
+    x.canPesable=!!art.pesable;
+    x.pesable=!!art.pesable && (teniaPesable===undefined?true:!!teniaPesable);
+  }else{
+    x.canPesable=!!(x.canPesable||x.pesableCatalogo||x.permiteKg||x.pesable);
+  }
   return x;
 }
 function maxLineDescByCost(it,maxDesc){
@@ -934,6 +1025,19 @@ function maxGeneralDescByCost(subtotal,costoTotal,maxDesc){
   if(!subtotal||!costoTotal)return maxDesc;
   if(subtotal<=costoTotal)return 0;
   return Math.max(0,Math.min(maxDesc,(1-(costoTotal/subtotal))*100));
+}
+
+function recalcularPedidoPorItemsFinales(ped,itemsFinales,descGeneral){
+  var clean=(itemsFinales||[]).map(function(it){return Object.assign({},it,{cantFinal:itemQtyFinal(it)});});
+  var sub=subtotalItemsConDesc(clean);
+  var costo=totalCostoItems(clean);
+  var desc=Math.max(0,Math.min(100,parseFloat(descGeneral)||0));
+  var descAmt=sub*(desc/100);
+  var total=Math.max(0,sub-descAmt);
+  return Object.assign({},ped,{itemsFinales:clean,sub:sub,descPct:desc,descAmt:descAmt,total:total,costoTotalPreparado:costo});
+}
+function totalOriginalPedido(ped){
+  return subtotalItemsConDesc((ped&&ped.items)||[])*(1-((parseFloat(ped&&ped.descPct)||0)/100));
 }
 function clampPct(v,max){return Math.min(Math.max(0,parseFloat(max)||0),Math.max(0,parseFloat(v)||0));}
 
@@ -970,7 +1074,7 @@ function pedidoEnRangoStock(p,desde,hasta){
   if(hf&&d>hf)return false;
   return true;
 }
-function pedidoVendidoParaStock(p){return p&&['entregado','finalizado'].indexOf(p.estado)>=0;}
+function pedidoVendidoParaStock(p){return p&&['listo_entrega','en_transito','entregado','finalizado'].indexOf(p.estado)>=0;}
 function keyItemStock(it){return String(it.artId||it.cod||it.codArt||it.desc||'').trim();}
 function cantidadDevueltaItem(p,it){
   var devs=p.devoluciones||[];
@@ -998,7 +1102,7 @@ function generarResumenUnidadesVendidas(pedidos,desde,hasta,preventistaId){
       var k=keyItemStock(it)||normTxt(it.desc||'sin_codigo');
       if(!agg[k])agg[k]={
         codigo:it.cod||'',codigoArticulo:it.codArt||'',articuloId:it.artId||'',descripcion:it.desc||'',
-        unidades:0,pedidos:{},monto:0
+        unidades:0,pedidos:{},monto:0,tipo:itemEsPesable(it)?'KG':'UNIDAD'
       };
       agg[k].unidades+=vendida;
       agg[k].pedidos[p.nPedido]=true;
@@ -1011,6 +1115,7 @@ function generarResumenUnidadesVendidas(pedidos,desde,hasta,preventistaId){
         'Código propio':it.cod||'',
         'Código artículo':it.codArt||'',
         'Artículo':it.desc||'',
+        'Tipo':itemEsPesable(it)?'KG':'UNIDAD',
         'Unidades enviadas':enviada,
         'Unidades devueltas':dev,
         'Unidades vendidas':vendida,
@@ -1023,6 +1128,7 @@ function generarResumenUnidadesVendidas(pedidos,desde,hasta,preventistaId){
     'Código propio':a.codigo,
     'Código artículo':a.codigoArticulo,
     'Artículo':a.descripcion,
+    'Tipo':a.tipo||'UNIDAD',
     'Unidades vendidas':a.unidades,
     'Pedidos':Object.keys(a.pedidos).length,
     'Monto vendido':a.monto
@@ -1030,6 +1136,7 @@ function generarResumenUnidadesVendidas(pedidos,desde,hasta,preventistaId){
   var zona=resumen.map(function(r){return {
     'CODIGO_PROPIO':r['Código propio'],
     'DESCRIPCION':r['Artículo'],
+    'TIPO':r['Tipo']||'UNIDAD',
     'UNIDADES_VENDIDAS':r['Unidades vendidas']
   };});
   return {resumen:resumen,detalle:detalle,zona:zona,pedidos:ps.length};
@@ -1168,7 +1275,7 @@ function auditSyncPending(){
 }
 function auditLocalEventsForDate(fecha){
   var synced=auditGetSynced(), pend=auditGetPending();
-  return synced.concat(pend).filter(function(e){return String(e.fecha_dia||'').slice(0,10)===fecha;});
+  return synced.concat(pend).filter(function(e){return fechaDiaEnRangoAudit(e.fecha_dia);});
 }
 function auditEnsureSyncLoop(user){
   if(window.__aaAuditLoopStarted)return;
@@ -1785,6 +1892,7 @@ function Sidebar(props){
       (isPrev||isAdminOrCo)&&nav('nuevo-pedido','🛒','Nuevo Pedido'),
       isPrev&&nav('ofertas','🔥','Ofertas Relámpago'),
       isPrev&&nav('mis-pedidos','📦','Mis Pedidos',preparadoCount),
+      isPrev&&nav('jornada-caja','🧾','Jornada / Caja'),
       isPrev&&nav('mapa-gps','🗺️','Mi Recorrido GPS'),
       isPrev&&nav('clientes','👥','Clientes'),
       isPrev&&nav('cuentas-corrientes','💳','Cuentas Corrientes'),
@@ -1802,6 +1910,7 @@ function Sidebar(props){
       !isAdminOrCo&&canClientes(user)!=='none'&&nav('cuentas-corrientes','💳','CC Cliente'),
       isAdminOrCo&&E('div',{className:'sb-section'},'Reportes'),
       isAdminOrCo&&nav('estadisticas','📈','Estadísticas'),
+      isAdminOrCo&&nav('jornada-caja','🧾','Jornadas / Caja'),
       isAdminOrCo&&nav('comisiones','💵','Comisiones'),
       isAdminOrCo&&nav('usuarios','👤','Usuarios'),
       isAdmin&&nav('configuracion','⚙️','Configuración')
@@ -2044,6 +2153,8 @@ function NuevoPedido(props){
   var _sc=useState([]),serverClisPedido=_sc[0],setServerClisPedido=_sc[1];
   var _cs=useState(false),searchingClientes=_cs[0],setSearchingClientes=_cs[1];
   var _ofp=useState([]),ofertasPedido=_ofp[0],setOfertasPedido=_ofp[1];
+  var _jor=useState(null),jornadaActiva=_jor[0],setJornadaActiva=_jor[1];
+  var _jload=useState(true),loadingJornada=_jload[0],setLoadingJornada=_jload[1];
 
   useEffect(function(){
     // V42: no cargar todos los artículos al iniciar Nuevo Pedido.
@@ -2054,6 +2165,7 @@ function NuevoPedido(props){
     dbGetClientesLight().then(function(rows){if(rows)setClis(rows.map(dbToCli).filter(function(c){return c.estado==='activo';}));})
       .finally(function(){setLoadingClientes(false);});
     dbGet('ofertas_preventistas').then(function(rows){if(rows)setOfertasPedido((Array.isArray(rows)?rows:[]).map(dbToOferta).filter(function(o){return ofertaVigente(o);}));}).catch(function(){});
+    if(user.role==='preventista'){getTurnoActivo(user).then(function(t){setJornadaActiva(t);setLoadingJornada(false);}).catch(function(){setLoadingJornada(false);});}else{setLoadingJornada(false);}
   },[]);
 
   useEffect(function(){
@@ -2094,16 +2206,21 @@ function NuevoPedido(props){
     var pp=precioPedidoConOferta(a,ofertasPedido);
     var of=pp.oferta;
     var idx=items.findIndex(function(i){return i.artId===a.id;});
-    if(idx>=0){var u=items.slice();u[idx]=Object.assign({},u[idx],{cant:u[idx].cant+1});setItems(u);}
+    if(idx>=0){var u=items.slice();var inc=itemEsPesable(u[idx])?0.1:1;u[idx]=Object.assign({},u[idx],{cant:normalizarCantidad((parseFloat(u[idx].cant)||0)+inc,itemEsPesable(u[idx]),itemEsPesable(u[idx])?0.001:1)});setItems(u);}
     else setItems(items.concat([{
-      artId:a.id,cod:a.cod,codArt:a.codArt,desc:a.desc,cant:1,
+      artId:a.id,cod:a.cod,codArt:a.codArt,desc:a.desc,cant:1,pesable:!!a.pesable,canPesable:!!a.pesable,
       pu:pp.precio,costo:artCostoUnitFromArt(a),precioPublico:artPrecioPublicoUnit(a),descPct:0,
       ofertaId:of?of.id:null,precioOferta:of?of.precioOferta:null,ofertaAplicada:!!of,precioRegularOferta:of?of.precioRegular:null
     }]));
   }
   function updItem(idx,k,v){
     var u=items.slice();u[idx]=Object.assign({},u[idx]);
-    if(k==='cant')u[idx][k]=Math.max(1,parseInt(v)||1);
+    if(k==='cant')u[idx][k]=normalizarCantidad(v,itemEsPesable(u[idx]),itemEsPesable(u[idx])?0.001:1);
+    else if(k==='pesable'){
+      if(!!v&&!itemPermiteKg(u[idx])){flash('err','Este artículo no está marcado como PESABLE en el Excel. Solo los pesables pueden venderse por kg.');return;}
+      u[idx].pesable=!!v;
+      u[idx].cant=normalizarCantidad(u[idx].cant,!!v,!!v?0.001:1);
+    }
     else if(k==='descPct'){var cap=maxLineDescByCost(u[idx],maxDesc);u[idx][k]=Math.min(cap,Math.max(0,parseFloat(v)||0));}
     else u[idx][k]=parseFloat(v)||0;
     setItems(u);
@@ -2113,6 +2230,7 @@ function NuevoPedido(props){
   function flash(t,m){setMsg({t:t,m:m});setTimeout(function(){setMsg(null);},4000);}
 
   function handleEnviar(){
+    if(user.role==='preventista'&&!jornadaActiva){flash('err','Primero tenés que iniciar jornada/caja. No se puede facturar sin jornada abierta.');return;}
     if(!cli){flash('err','Seleccioná un cliente.');return;}
     if(items.length===0){flash('err','Agregá al menos un artículo.');return;}
     flash('ok','Enviando pedido…');
@@ -2122,6 +2240,7 @@ function NuevoPedido(props){
       var ped={
         id:uid(),nPedido:n,fecha:nowStr(),
         estado:'pendiente',
+        turnoId:jornadaActiva&&jornadaActiva.id||null,
         preventistaId:user.id,preventistaNombre:user.nombre||user.username,
         cliente:{id:cli.id,nombre:cli.nombre,apellido:cli.apellido,
           nombreFantasia:cli.nombreFantasia||'',dir:cli.dir,tel:cli.tel},
@@ -2162,6 +2281,8 @@ function NuevoPedido(props){
 
   return E('div',null,
     msg&&E(Alert,{t:msg.t,msg:msg.m,onClose:function(){setMsg(null);}}),
+    user.role==='preventista'&&loadingJornada&&E('div',{className:'card'},E('div',{className:'empty'},'Verificando jornada abierta…')),
+    user.role==='preventista'&&!loadingJornada&&!jornadaActiva&&E('div',{className:'card'},E('div',{className:'card-title'},'🧾 Jornada requerida'),E('div',{className:'alert warn'},E('span',null,'Para tomar pedidos/facturar primero tenés que iniciar jornada. Esto permite cerrar caja y resumir efectivo, transferencias y cuenta corriente del turno.')),E('button',{className:'btn ok lg',onClick:function(){location.hash='';}},'Ir al menú Jornada / Caja')),
     E('div',{className:'card'},
       E('div',{className:'card-title'},'🛒 Nuevo Pedido'),
       E('div',{className:'fg'},
@@ -2213,7 +2334,8 @@ function NuevoPedido(props){
           return E('button',{key:a.id,className:'art-list-row',onClick:function(){addArt(a);}},
             E('div',{className:'art-list-info'},
               E('div',{className:'art-list-code'},a.cod+(a.codArt?' · '+a.codArt:'')),
-              E('div',{className:'art-list-name'},a.desc)
+              E('div',{className:'art-list-name'},a.desc),
+              a.pesable&&E('div',{style:{fontSize:10,color:'var(--green)',fontWeight:700,marginTop:2}},'⚖ Se vende por kg')
             ),
             (function(){var of=ofertaActivaParaArticulo(ofertasPedido,a);return E('div',{className:'art-list-price'},
               of?E('span',{className:'offer-inline-price'},'🔥 $'+$(of.precioOferta)):('$'+$(artPrecioPublicoUnit(a))),
@@ -2238,7 +2360,13 @@ function NuevoPedido(props){
               var lineSub=it.cant*it.pu*(1-lineDesc/100);
               return E('tr',{key:i},
                 E('td',null,E('div',{style:{fontWeight:600,fontSize:13}},it.desc),it.ofertaAplicada&&E('div',{className:'offer-applied-badge'},'🔥 Oferta Relámpago aplicada'),E('div',{style:{fontSize:10,color:'var(--txt2)'}},it.cod)),
-                E('td',null,E('input',{className:'fi sm qty',type:'number',min:1,value:it.cant,onChange:function(e){updItem(i,'cant',e.target.value);}})),
+                E('td',null,
+                  E('input',{className:'fi sm qty',type:'number',inputMode:'decimal',min:itemEsPesable(it)?0.001:1,step:qtyStep(it),value:it.cant,onChange:function(e){updItem(i,'cant',e.target.value);}}),
+                  E('div',{style:{fontSize:10,color:itemEsPesable(it)?'var(--green)':'var(--txt2)',fontWeight:itemEsPesable(it)?700:400}},itemEsPesable(it)?'kg / acepta decimales':'unidades'),
+                  itemPermiteKg(it)
+                    ? E('button',{type:'button',className:'btn sm',style:{marginTop:4,fontSize:10,padding:'3px 6px'},onClick:function(){updItem(i,'pesable',!itemEsPesable(it));}},itemEsPesable(it)?'Cambiar a unidad':'Vender por kg')
+                    : E('div',{style:{fontSize:10,color:'var(--txt2)',marginTop:4}},'No pesable')
+                ),
                 E('td',null,E('div',null,'$'+$(it.pu)),it.ofertaAplicada&&it.precioPublico&&E('del',{style:{display:'block',fontSize:10,color:'var(--txt2)'}},'$'+$(it.precioPublico)),lineDesc>0&&E('div',{style:{fontSize:10,color:'var(--red)'}},'-'+lineDesc+'%')),
                 maxDesc>0&&E('td',null,E('input',{className:'fi sm qty',type:'number',min:0,max:maxDesc,step:0.5,
                   value:lineDesc,onChange:function(e){updItem(i,'descPct',e.target.value);},
@@ -2407,6 +2535,86 @@ function MisPedidos(props){
   );
 }
 
+
+
+
+/* ═══════════════════════════
+   JORNADA / CAJA (Preventista)
+═══════════════════════════ */
+function JornadaCaja(props){
+  var user=props.user;
+  var isAdmin=user.role==='admin'||user.role==='coadmin';
+  var _t=useState(null),turno=_t[0],setTurno=_t[1];
+  var _ts=useState([]),turnos=_ts[0],setTurnos=_ts[1];
+  var _p=useState([]),pedidos=_p[0],setPedidos=_p[1];
+  var _m=useState([]),movs=_m[0],setMovs=_m[1];
+  var _msg=useState(null),msg=_msg[0],setMsg=_msg[1];
+  var _obs=useState(''),obs=_obs[0],setObs=_obs[1];
+
+  function flash(t,m){setMsg({t:t,m:m});setTimeout(function(){setMsg(null);},5000);}
+  function reload(){
+    Promise.all([getTurnoActivo(user),dbGet('turnos_jornada'),dbGet('pedidos'),dbGet('movimientos_cc')]).then(function(r){
+      setTurno(r[0]);setTurnos((r[1]||[]).map(dbToTurno).sort(function(a,b){return String(b.fechaInicio).localeCompare(String(a.fechaInicio));}));setPedidos((r[2]||[]).map(dbToPed));setMovs(r[3]||[]);
+    }).catch(function(){flash('err','No se pudo cargar jornada. Ejecutá el SQL V47 si todavía no lo hiciste.');});
+  }
+  useEffect(function(){reload();},[]);
+
+  function iniciar(){
+    getTurnoActivo(user).then(function(t){
+      if(t){setTurno(t);flash('warn','Ya tenés una jornada abierta. Cerrala antes de abrir otra.');return;}
+      var nuevo={id:uid(),usuarioId:user.id,usuarioNombre:user.nombre||user.username,fechaInicio:nowStr(),estado:'abierto',gpsInicio:gl('gps_last_'+user.id,null),resumen:{},observaciones:''};
+      setTurnoActivoLocal(user.id,nuevo);
+      dbUpsert('turnos_jornada',turnoToDb(nuevo)).then(function(){auditRecord(user,'jornada','Inicio de jornada',{resultado:'abierta'});setTurno(nuevo);reload();flash('ok','Jornada iniciada. Ya podés tomar pedidos/facturar.');})
+        .catch(function(e){flash('err','No se pudo iniciar jornada: '+e.message);});
+    });
+  }
+  function cerrar(){
+    if(!turno){flash('err','No tenés jornada abierta.');return;}
+    var cerrado=Object.assign({},turno,{fechaCierre:nowStr(),estado:'cerrado',gpsCierre:gl('gps_last_'+user.id,null),observaciones:obs||''});
+    var resumen=resumenTurnoDesdeDatos(cerrado,pedidos,movs);
+    cerrado.resumen=resumen;
+    dbUpdate('turnos_jornada',cerrado.id,turnoToDb(cerrado)).then(function(){setTurnoActivoLocal(user.id,null);auditRecord(user,'jornada','Cierre de jornada',{monto:resumen.totalGeneral,resultado:'cerrada',observaciones:'Pedidos '+resumen.pedidos+' · Total $'+$(resumen.totalGeneral)});setTurno(null);setObs('');reload();flash('ok','Jornada cerrada. Se guardó el resumen de caja/turno.');})
+      .catch(function(e){flash('err','No se pudo cerrar jornada: '+e.message);});
+  }
+  function exportar(){
+    var rows=(isAdmin?turnos:turnos.filter(function(t){return t.usuarioId===user.id;})).map(function(t){var r=t.resumen||{};return {'Preventista':t.usuarioNombre,'Estado':t.estado,'Inicio':t.fechaInicio,'Cierre':t.fechaCierre||'','Pedidos':r.pedidos||0,'Vendido':r.totalVendido||0,'Efectivo pedidos':r.efectivo||0,'Transferencias pedidos':r.transferencia||0,'Cuenta corriente enviada':r.cuentaCorriente||0,'Cobros efectivo':r.cobrosEfectivo||0,'Cobros transferencia':r.cobrosTransferencia||0,'Total caja':r.totalCaja||0,'Total general':r.totalGeneral||0,'Obs':t.observaciones||''};});
+    exportXLSX([{name:'Jornadas',rows:rows}],'jornadas_caja_alista.xlsx');
+  }
+  var resumenActual=turno?resumenTurnoDesdeDatos(turno,pedidos,movs):null;
+  var historial=(isAdmin?turnos:turnos.filter(function(t){return t.usuarioId===user.id;})).slice(0,20);
+  function detalleLista(titulo,arr,campoExtra){return E('div',{className:'card',style:{marginTop:10}},E('div',{className:'card-title'},titulo),(!arr||!arr.length)?E('div',{className:'empty'},'Sin movimientos.'):E('div',{className:'tw'},E('table',null,E('thead',null,E('tr',null,E('th',null,'Fecha'),E('th',null,'Cliente'),E('th',null,'Pedido'),E('th',null,'Monto'),campoExtra&&E('th',null,campoExtra))),E('tbody',null,arr.map(function(x,i){return E('tr',{key:i},E('td',null,x.fecha||''),E('td',null,x.cliente||''),E('td',null,x.pedido?'#'+x.pedido:'—'),E('td',null,'$'+$(x.monto)),campoExtra&&E('td',null,x.datos||x.forma||x.referencia||''));})))));}
+  return E('div',null,
+    msg&&E(Alert,{t:msg.t,msg:msg.m,onClose:function(){setMsg(null);}}),
+    E('div',{className:'card'},
+      E('div',{className:'card-hd'},E('div',{className:'card-title'},'🧾 Jornada / Caja por turno'),E('div',{className:'brow'},E('button',{className:'btn',onClick:reload},'🔄 Actualizar'),E('button',{className:'btn ok',onClick:exportar},'📊 Excel'))),
+      E('div',{className:'alert warn'},E('span',null,'El preventista debe iniciar jornada antes de tomar pedidos. Al cerrar, queda asentado efectivo, transferencias, cuenta corriente y cobros del turno.')),
+      turno?E('div',null,
+        E('div',{className:'alert ok'},E('span',null,'Jornada abierta desde '+turno.fechaInicio)),
+        resumenActual&&E('div',{className:'kpis'},
+          E('div',{className:'kpi'},E('div',{className:'kpi-label'},'Pedidos turno'),E('div',{className:'kpi-val'},resumenActual.pedidos||0)),
+          E('div',{className:'kpi green'},E('div',{className:'kpi-label'},'Efectivo pedidos'),E('div',{className:'kpi-val'},'$'+$(resumenActual.efectivo))),
+          E('div',{className:'kpi'},E('div',{className:'kpi-label'},'Transferencias'),E('div',{className:'kpi-val'},'$'+$(resumenActual.transferencia))),
+          E('div',{className:'kpi orange'},E('div',{className:'kpi-label'},'Cuenta Corriente enviada'),E('div',{className:'kpi-val'},'$'+$(resumenActual.cuentaCorriente))),
+          E('div',{className:'kpi purple'},E('div',{className:'kpi-label'},'Total caja esperado'),E('div',{className:'kpi-val'},'$'+$(resumenActual.totalCaja)))
+        ),
+        E('div',{className:'fg'},E('label',null,'Observaciones de cierre'),E('textarea',{className:'fi',rows:2,value:obs,onChange:function(e){setObs(e.target.value);},placeholder:'Ej: transferencia pendiente, diferencia de efectivo, comprobante enviado…'})),
+        E('button',{className:'btn dan lg',style:{width:'100%'},onClick:function(){if(confirm('¿Cerrar jornada y guardar resumen del turno?'))cerrar();}},'🔒 Cerrar jornada / caja'),
+        resumenActual&&detalleLista('💵 Efectivo por pedidos',resumenActual.efectivoDetalle),
+        resumenActual&&detalleLista('🏦 Transferencias por pedidos',resumenActual.transferenciasDetalle,'Comprobante / datos'),
+        resumenActual&&detalleLista('💳 Cuenta corriente enviada en pedidos',resumenActual.ccDetalle),
+        resumenActual&&detalleLista('🧾 Cobros de cuenta corriente recibidos',resumenActual.cobrosDetalle,'Forma / ref')
+      ):E('div',null,
+        E('div',{className:'empty'},'No tenés jornada abierta.'),
+        E('button',{className:'btn ok lg',style:{width:'100%'},onClick:iniciar},'▶️ Iniciar jornada')
+      )
+    ),
+    E('div',{className:'card'},
+      E('div',{className:'card-title'},isAdmin?'Historial de jornadas':'Mis últimos cierres'),
+      historial.length===0?E('div',{className:'empty'},'Sin jornadas registradas.'):
+      E('div',{className:'tw'},E('table',null,E('thead',null,E('tr',null,E('th',null,'Preventista'),E('th',null,'Inicio'),E('th',null,'Cierre'),E('th',null,'Estado'),E('th',null,'Pedidos'),E('th',null,'Caja'),E('th',null,'Total'))),E('tbody',null,historial.map(function(t){var r=t.resumen||{};return E('tr',{key:t.id},E('td',null,t.usuarioNombre),E('td',null,t.fechaInicio),E('td',null,t.fechaCierre||'—'),E('td',null,E('span',{className:'st '+(t.estado==='abierto'?'pendiente':'finalizado')},t.estado)),E('td',null,r.pedidos||0),E('td',null,'$'+$(r.totalCaja||0)),E('td',null,'$'+$(r.totalGeneral||0)));}))))
+    )
+  );
+}
 
 /* ═══════════════════════════
    MAPA GPS (Preventista)
@@ -2704,7 +2912,12 @@ function ColaPreparacion(props){
   function setIF(idx,k,v){
     setPrepItems(function(prev){
       var u=prev.slice();u[idx]=Object.assign({},u[idx]);
-      if(k==='cantFinal')u[idx][k]=Math.max(0,parseInt(v)||0);
+      if(k==='cantFinal')u[idx][k]=normalizarCantidad(v,itemEsPesable(u[idx]),0);
+      else if(k==='pesable'){
+        if(!!v&&!itemPermiteKg(u[idx])){flash('err','Este artículo no está marcado como PESABLE en el Excel. Solo los pesables pueden venderse por kg.');return prev;}
+        u[idx].pesable=!!v;
+        u[idx].cantFinal=normalizarCantidad(u[idx].cantFinal,!!v,0);
+      }
       else if(k==='pu')u[idx][k]=Math.max(parseFloat(u[idx].costo)||0,parseFloat(v)||0);
       else if(k==='descPct'){var cap=maxLineDescByCost(u[idx],maxDesc);u[idx][k]=Math.min(cap,Math.max(0,parseFloat(v)||0));}
       else u[idx][k]=v;
@@ -2717,7 +2930,7 @@ function ColaPreparacion(props){
       var u=prev.slice();
       u[idx]=Object.assign({},u[idx],{cantFinal:0,motivo:'Reemplazado por '+art.desc,tipo:'original'});
       var rep={artId:art.id,cod:art.cod,codArt:art.codArt,desc:art.desc,
-        cant:u[idx].cant,cantFinal:u[idx].cant,pu:artPrecioPublicoUnit(art),costo:artCostoUnitFromArt(art),precioPublico:artPrecioPublicoUnit(art),
+        cant:u[idx].cant,cantFinal:u[idx].cant,pesable:!!art.pesable,canPesable:!!art.pesable,pu:artPrecioPublicoUnit(art),costo:artCostoUnitFromArt(art),precioPublico:artPrecioPublicoUnit(art),
         tipo:'reemplazo',motivo:'Reemplazo de '+u[idx].desc};
       u.splice(idx+1,0,rep);
       return u;
@@ -2728,7 +2941,7 @@ function ColaPreparacion(props){
   function agregarArt(art){
     setPrepItems(function(prev){
       return prev.concat([{artId:art.id,cod:art.cod,codArt:art.codArt,
-        desc:art.desc,cant:1,cantFinal:1,pu:artPrecioPublicoUnit(art),costo:artCostoUnitFromArt(art),precioPublico:artPrecioPublicoUnit(art),
+        desc:art.desc,cant:1,cantFinal:1,pesable:!!art.pesable,canPesable:!!art.pesable,pu:artPrecioPublicoUnit(art),costo:artCostoUnitFromArt(art),precioPublico:artPrecioPublicoUnit(art),
         tipo:'agregado',motivo:''}]);
     });
     setPicker(null);setQArt('');
@@ -2739,7 +2952,7 @@ function ColaPreparacion(props){
   function confirmarPrep(){
     var ped=prepModal;
     var faltaMotivo=prepItems.find(function(it){
-      var cambioCantidad=(it.tipo!=='agregado'&&parseInt(it.cantFinal||0)!==parseInt(it.cant||0));
+      var cambioCantidad=(it.tipo!=='agregado'&&Math.abs((parseFloat(it.cantFinal)||0)-(parseFloat(it.cant)||0))>0.0001);
       var requiereMotivo=(it.tipo!=='original')||cambioCantidad;
       return requiereMotivo&&!String(it.motivo||'').trim();
     });
@@ -2756,14 +2969,13 @@ function ColaPreparacion(props){
     var maxGeneral=maxGeneralDescByCost(newSub,costoTotal,maxDesc);
     var descGeneral=Math.min(maxGeneral,Math.max(0,parseFloat(prepDescPct)||0));
     if((parseFloat(prepDescPct)||0)>maxGeneral+0.0001){flash('err','El descuento general supera el margen de costo. Máximo permitido: '+maxGeneral.toFixed(2)+'%.');return;}
-    var newTotal=newSub*(1-descGeneral/100);
-    if(newTotal+0.01<costoTotal){flash('err','No se puede guardar: el total queda por debajo del costo.');return;}
-    var updPed=Object.assign({},ped,{
+    var recalculado=recalcularPedidoPorItemsFinales(ped,cleanItems,descGeneral);
+    if(recalculado.total+0.01<costoTotal){flash('err','No se puede guardar: el total queda por debajo del costo.');return;}
+    var updPed=Object.assign({},recalculado,{
       estado:'listo_entrega',
       preparadorId:user.id,preparadorNombre:user.nombre||user.username,
-      fechaPreparado:nowStr(),itemsFinales:cleanItems,
-      notaPrep:notaPrep.trim()||null,
-      sub:newSub,descPct:descGeneral,descAmt:newSub*(descGeneral/100),total:newTotal
+      fechaPreparado:nowStr(),
+      notaPrep:notaPrep.trim()||null
     });
     dbUpdate('pedidos',updPed.id,pedToDb(updPed))
       .then(function(){reload();setPrepModal(null);flash('ok','Pedido #'+ped.nPedido+' preparado y enviado a Pendiente para entregar.');})
@@ -2794,7 +3006,7 @@ function ColaPreparacion(props){
     setDevItems(function(prev){
       var u=prev.slice();u[idx]=Object.assign({},u[idx]);
       if(k==='devuelto'){u[idx].devuelto=v;if(!v){u[idx].cantDev=0;u[idx].motivoDev='';}}
-      else if(k==='cantDev')u[idx].cantDev=Math.min(u[idx].cantEnviada,Math.max(0,parseInt(v)||0));
+      else if(k==='cantDev')u[idx].cantDev=Math.min(u[idx].cantEnviada,normalizarCantidad(v,itemEsPesable(u[idx]),0));
       else u[idx][k]=v;
       return u;
     });
@@ -3019,10 +3231,16 @@ function ColaPreparacion(props){
             E('td',null,E('span',{style:{padding:'2px 7px',borderRadius:10,fontSize:10,fontWeight:700,background:badge.b,color:badge.t}},badge.l)),
             E('td',null,E('div',{style:{fontWeight:600,fontSize:13}},it.desc),it.ofertaAplicada&&E('div',{className:'offer-applied-badge'},'🔥 Oferta Relámpago aplicada'),E('div',{style:{fontSize:10,color:'var(--txt2)'}},it.cod)),
             E('td',null,it.tipo==='agregado'?'—':it.cant),
-            E('td',null,E('input',{type:'number',min:0,max:it.tipo==='agregado'?999:it.cant,value:it.cantFinal,
+            E('td',null,
+              E('input',{type:'number',inputMode:'decimal',min:0,max:it.tipo==='agregado'?999:it.cant,step:qtyStep(it),value:it.cantFinal,
               onChange:function(e){setIF(i,'cantFinal',e.target.value);},
-              style:{width:64,padding:'5px 8px',border:'1.5px solid var(--border)',borderRadius:6,fontFamily:'inherit',
-                background:it.cantFinal===0?'#fee2e2':changed?'#fef9c3':''}})),
+              style:{width:72,padding:'5px 8px',border:'1.5px solid var(--border)',borderRadius:6,fontFamily:'inherit',
+                background:it.cantFinal===0?'#fee2e2':changed?'#fef9c3':''}}),
+              E('div',{style:{fontSize:10,color:itemEsPesable(it)?'var(--green)':'var(--txt2)',fontWeight:itemEsPesable(it)?700:400}},itemEsPesable(it)?'kg':'un.'),
+              itemPermiteKg(it)
+                ? E('button',{type:'button',className:'btn sm',style:{marginTop:4,fontSize:10,padding:'3px 6px'},onClick:function(){setIF(i,'pesable',!itemEsPesable(it));}},itemEsPesable(it)?'Unidad':'Kg')
+                : E('div',{style:{fontSize:10,color:'var(--txt2)',marginTop:4}},'No pesable')
+            ),
             E('td',null,
               isAdminPrep
                 ? E('input',{type:'number',min:0,step:0.01,value:it.pu,
@@ -3053,8 +3271,11 @@ function ColaPreparacion(props){
       E('div',{className:'fg'},E('label',null,'Nota para el preventista (opcional)'),
         E('input',{className:'fi',placeholder:'Ej: Faltó azúcar, se mandó reemplazo…',value:notaPrep,onChange:function(e){setNotaPrep(e.target.value);}})),
       E('div',{style:{textAlign:'right',fontWeight:700,fontSize:14,color:'var(--blue)',marginBottom:14}},
-        'Subtotal preparado: $'+$(prepSubCalc),
-        prepDescCalc>0?' · Desc. general '+prepDescCalc+'% · Total: $'+$(prepTotalCalc):' · Total: $'+$(prepTotalCalc)),
+        E('div',null,'Total pedido original: $'+$(totalOriginalPedido(prepModal))),
+        E('div',null,'Subtotal preparado: $'+$(prepSubCalc), prepDescCalc>0?' · Desc. general '+prepDescCalc+'%':'', ' · Total preparado final: $'+$(prepTotalCalc)),
+        E('div',{style:{fontSize:12,color:(prepTotalCalc<totalOriginalPedido(prepModal)?'var(--orange)':'var(--green)')}},
+          'Diferencia por unidades descontadas/agregadas: $'+$(prepTotalCalc-totalOriginalPedido(prepModal)))
+      ),
       E('div',{className:'brow'},
         E('button',{className:'btn ok',style:{flex:1},onClick:confirmarPrep},'✅ Marcar listo para entregar'),
         E('button',{className:'btn',style:{flex:1},onClick:function(){setPrepModal(null);}},'Cancelar')
@@ -3082,7 +3303,7 @@ function ColaPreparacion(props){
               E('td',null,E('input',{type:'checkbox',checked:!!it.devuelto,onChange:function(e){setDI(i,'devuelto',e.target.checked);},style:{width:18,height:18}})),
               E('td',null,it.desc),
               E('td',null,it.cantEnviada),
-              E('td',null,it.devuelto&&E('input',{type:'number',min:1,max:it.cantEnviada,value:it.cantDev||1,
+              E('td',null,it.devuelto&&E('input',{type:'number',min:itemEsPesable(it)?0.001:1,max:it.cantEnviada,step:qtyStep(it),value:it.cantDev||1,
                 onChange:function(e){setDI(i,'cantDev',e.target.value);},
                 style:{width:60,padding:'4px 6px',border:'1.5px solid var(--border)',borderRadius:5,fontFamily:'inherit'}})),
               E('td',null,it.devuelto&&E('select',{
@@ -3369,7 +3590,7 @@ function TodosPedidos(props){
   function exportarUnidadesVendidas(){
     if(!isAdminOrCo){flash('err','Solo Administrador o Co-Administrador puede exportar el resumen de stock.');return;}
     var rep=generarResumenUnidadesVendidas(pedidos,stockDesde,stockHasta,filtPrev);
-    if(rep.resumen.length===0){flash('warn','No hay unidades vendidas en ese rango. Solo se cuentan pedidos entregados/finalizados, descontando devoluciones.');return;}
+    if(rep.resumen.length===0){flash('warn','No hay unidades vendidas en ese rango. Se cuentan pedidos facturados/listos/entregados/finalizados, descontando devoluciones.');return;}
     var nombre='unidades_vendidas_'+(stockDesde||'desde')+'_a_'+(stockHasta||'hasta')+'.xlsx';
     exportXLSX([
       {name:'Para Zona de Precios',rows:rep.zona},
@@ -3390,7 +3611,7 @@ function TodosPedidos(props){
     if(!isAdminOrCo){flash('err','Solo Administrador o Co-Administrador puede ver el resumen de stock.');return;}
     var rep=generarResumenUnidadesVendidas(pedidos,stockDesde,stockHasta,filtPrev);
     setStockReport(rep);
-    if(rep.resumen.length===0){flash('warn','No hay unidades vendidas en ese rango. Solo se cuentan pedidos entregados/finalizados, descontando devoluciones.');}
+    if(rep.resumen.length===0){flash('warn','No hay unidades vendidas en ese rango. Se cuentan pedidos facturados/listos/entregados/finalizados, descontando devoluciones.');}
   }
 
   var estados=['pendiente','preparado','listo_entrega','en_transito','entregado','finalizado','cancelado'];
@@ -3551,7 +3772,7 @@ function TodosPedidos(props){
     stockReport&&E(Modal,{title:'📦 Unidades vendidas para stock',xl:true,onClose:function(){setStockReport(null);}},
       E('div',{className:'modal-body'},
         E('div',{className:'alert info',style:{marginBottom:12}},
-          E('span',null,'Rango: '+(stockDesde||'—')+' a '+(stockHasta||'—')+' · Pedidos incluidos: '+stockReport.pedidos+' · Solo entregados/finalizados, descontando devoluciones.')
+          E('span',null,'Rango: '+(stockDesde||'—')+' a '+(stockHasta||'—')+' · Pedidos incluidos: '+stockReport.pedidos+' · Facturados/listos/entregados/finalizados, descontando devoluciones.')
         ),
         E('div',{className:'brow',style:{justifyContent:'flex-end',marginBottom:10}},
           E('button',{className:'btn ok',onClick:exportarUnidadesVendidas},'📦 Exportar Excel')
@@ -3586,7 +3807,7 @@ function Articulos(props){
   var _a=useState([]),arts=_a[0],setArts=_a[1];
   var _b=useState(''),q=_b[0],setQ=_b[1];
   var _c=useState(null),modal=_c[0],setModal=_c[1];
-  var FORM0={cod:'',codArt:'',desc:'',precio:0,costo:0,estado:'activo'};
+  var FORM0={cod:'',codArt:'',desc:'',precio:0,costo:0,pesable:false,estado:'activo'};
   var _d=useState(FORM0),form=_d[0],setForm=_d[1];
   var _e=useState(null),msg=_e[0],setMsg=_e[1];
   var _f=useState([]),serverArts=_f[0],setServerArts=_f[1];
@@ -3632,7 +3853,7 @@ function Articulos(props){
     if(!form.cod.trim()||!form.desc.trim()){flash('err','Código y descripción son obligatorios.');return;}
     var others=arts.filter(function(a){return a.id!==form.id;});
     if(others.find(function(a){return a.cod.trim()===form.cod.trim();})){flash('err','El código ya existe.');return;}
-    var art=Object.assign({},form,{id:form.id||uid(),precio:parseFloat(form.precio)||0,costo:parseFloat(form.costo)||0});
+    var art=Object.assign({},form,{id:form.id||uid(),precio:parseFloat(form.precio)||0,costo:parseFloat(form.costo)||0,pesable:!!form.pesable});
     dbUpsert('articulos',artToDb(art))
       .then(function(){reload();setModal(null);flash('ok','Artículo guardado.');})
       .catch(function(e){flash('err','Error al guardar: '+e.message);});
@@ -3653,7 +3874,7 @@ function Articulos(props){
   function doExport(){
     exportXLSX([{name:'Artículos',rows:arts.map(function(a){
       return{'Código':a.cod,'Cód.Artículo':a.codArt,'Descripción':a.desc,
-        'Precio de Costo':a.costo||0,'Precio al Público':a.precio,'Estado':a.estado};
+        'Precio de Costo':a.costo||0,'Pesable':a.pesable?'SI':'','Precio al Público':a.precio,'Estado':a.estado};
     })}],'articulos_alista.xlsx');
   }
 
@@ -3723,6 +3944,7 @@ function Articulos(props){
 
             var costo=parseMoney(rowVal(row,['COSTO_CON_IVA','COSTO CON IVA','COSTO CON I.V.A.','COSTO_IVA','COSTO IVA']));
             if(!costo)costo=parseMoney(rowVal(row,ART_ALIAS_COSTO));
+            var pesable=boolPesable(rowVal(row,ART_ALIAS_PESABLE));
 
             if(precio>0&&costo>0){
               muestrasPrecio++;
@@ -3731,7 +3953,7 @@ function Articulos(props){
             var key=normTxt(cod);
             if(vistos[key]){duplicadas++;return;}
             vistos[key]=true;
-            nuevos.push({id:uid(),cod:cod,codArt:codArt,desc:desc,precio:precio,costo:costo,estado:'activo'});
+            nuevos.push({id:uid(),cod:cod,codArt:codArt,desc:desc,precio:precio,costo:costo,estado:'activo',pesable:pesable});
           });
           if(!nuevos.length){flash('err','Sin filas válidas. Verificá que el archivo tenga columnas de código y descripción.');return;}
 
@@ -3805,7 +4027,7 @@ function Articulos(props){
       filtered.length===0?E('div',{className:'empty'},'No se encontraron artículos para "'+q+'". Si figura en tu Excel, importalo de nuevo con esta versión y revisá el diagnóstico COCA/COC.'):
       E('div',{className:'tw'},E('table',null,
         E('thead',null,E('tr',null,
-          E('th',null,'Código'),E('th',null,'Descripción'),E('th',null,'Precio al Público'),
+          E('th',null,'Código'),E('th',null,'Descripción'),E('th',null,'Venta'),E('th',null,'Precio al Público'),
           isAdmin&&E('th',null,'Precio de Costo'),E('th',null,'Estado'),
           isAdmin&&E('th',null,'')
         )),
@@ -3813,6 +4035,7 @@ function Articulos(props){
           return E('tr',{key:a.id,style:{opacity:a.estado==='inactivo'?.5:1}},
             E('td',null,E('div',{style:{fontWeight:700}},a.cod),a.codArt&&E('div',{style:{fontSize:10,color:'var(--txt2)'}},a.codArt)),
             E('td',null,a.desc),
+            E('td',null,a.pesable?'Kg':'Unidad'),
             E('td',null,'$'+$(a.precio)),
             isAdmin&&E('td',null,'$'+$(a.costo||0)),
             E('td',null,E('span',{className:'badge '+(a.estado==='activo'?'on':'off')},a.estado)),
@@ -3843,6 +4066,7 @@ function Articulos(props){
         E('div',{className:'fg'},E('label',null,'Precio de Costo ($)'),
           E('input',{className:'fi',type:'number',min:0,step:0.01,value:form.costo,onChange:function(e){F('costo',e.target.value);}}))
       ),
+      E('div',{className:'fg'},E('label',null,E('input',{type:'checkbox',checked:!!form.pesable,onChange:function(e){F('pesable',e.target.checked);},style:{marginRight:8}}),'Producto pesable / se vende por kg')),
       E('div',{className:'fg'},E('label',null,'Estado'),
         E('select',{className:'fs',value:form.estado,onChange:function(e){F('estado',e.target.value);}},
           E('option',{value:'activo'},'Activo'),E('option',{value:'inactivo'},'Inactivo'))),
@@ -4197,8 +4421,8 @@ function Estadisticas(){
     dbGet('pedidos').then(function(rows){if(rows)setPedidos(rows.map(dbToPed));});
     dbGetClientesLight().then(function(rows){if(rows)setClis(rows.map(dbToCli));});
   },[]);
-  var filtered=pedidos.filter(function(p){return inPeriod(p,period);});
-  var finalizados=filtered.filter(function(p){return p.estado==='finalizado';});
+  var filtered=pedidos.filter(function(p){return inPeriodPedido(p,period);});
+  var finalizados=filtered.filter(pedidoEsVendido);
 
   var totalVendido=finalizados.reduce(function(s,p){return s+p.total;},0);
   var totalCosto=finalizados.reduce(function(s,p){return s+(p.itemsFinales||p.items).reduce(function(si,it){var c=it.cantFinal!==undefined?it.cantFinal:it.cant;return si+c*(it.costo||0);},0);},0);
@@ -4210,7 +4434,7 @@ function Estadisticas(){
 
   // By day
   var byDay={};
-  finalizados.forEach(function(p){var d=fechaSolo(p.fecha).trim();byDay[d]=(byDay[d]||0)+p.total;});
+  finalizados.forEach(function(p){var d=fechaSolo(pedidoFechaComercial(p)).trim();byDay[d]=(byDay[d]||0)+p.total;});
   var dayData=Object.entries(byDay).map(function(kv){return {l:kv[0].slice(0,5),v:kv[1]};}).slice(-12);
 
   // By preventista
@@ -4342,53 +4566,455 @@ function Comisiones(){
   var _a=useState(gl('comisiones',{})),com=_a[0],setCom=_a[1];
   var _b=useState('mes'),period=_b[0],setPeriod=_b[1];
   var _pu=useState([]),usersDB=_pu[0],setUsersDB=_pu[1];
-  useEffect(function(){
-    dbGet('pedidos').then(function(rows){if(rows)sl('pedidos_cache',rows.map(dbToPed));});
-    dbGet('usuarios').then(function(rows){if(rows)setUsersDB(rows.map(dbToUser));});
-  },[]);
-  var users=usersDB.length?usersDB:gl('users',[]).filter(function(u){return u.role==='preventista'||u.role==='coadmin';});
-
+  var _pd=useState([]),pedidosDB=_pd[0],setPedidosDB=_pd[1];
+  var _msg=useState(null),msg=_msg[0],setMsg=_msg[1];
+  function cargarComisiones(){
+    Promise.all([
+      dbGet('pedidos').then(function(rows){var ps=Array.isArray(rows)?rows.map(dbToPed):[];setPedidosDB(ps);sl('pedidos_cache',ps);return ps;}),
+      dbGet('usuarios').then(function(rows){var us=Array.isArray(rows)?rows.map(dbToUser):[];setUsersDB(us);return us;})
+    ]).then(function(){setMsg({t:'ok',m:'Comisiones actualizadas.'});}).catch(function(){setMsg({t:'warn',m:'No se pudo actualizar desde Supabase. Se usa la información local disponible.'});});
+  }
+  useEffect(function(){cargarComisiones();},[]);
+  var users=(usersDB.length?usersDB:gl('users',[])).filter(function(u){return u.role==='preventista'||u.role==='coadmin';});
+  var pedidosBase=pedidosDB.length?pedidosDB:gl('pedidos_cache',[]);
   function setCom1(id,val){var u=Object.assign({},com);u[id]=parseFloat(val)||0;setCom(u);sl('comisiones',u);}
-
   function calc(uid){
-    var vv=gl('pedidos_cache',[]).filter(function(p){return p.preventistaId===uid&&p.estado==='finalizado'&&inPeriod(p,period);});
-    var total=vv.reduce(function(s,p){return s+p.total;},0);
-    return {total:total,comision:total*(com[uid]||0)/100,n:vv.length};
+    var vv=(pedidosBase||[]).filter(function(p){return String(p.preventistaId)===String(uid)&&pedidoEsVendido(p)&&inPeriodPedido(p,period);});
+    var total=vv.reduce(function(s,p){return s+(parseFloat(p.total)||0);},0);
+    return {total:total,comision:total*(parseFloat(com[uid])||0)/100,n:vv.length};
   }
-
+  var totalGeneral=users.reduce(function(s,u){return s+calc(u.id).total;},0);
+  var comGeneral=users.reduce(function(s,u){return s+calc(u.id).comision;},0);
   function doExport(){
-    exportXLSX([{name:'Comisiones',rows:users.map(function(u){var c=calc(u.id);return{'Preventista':u.nombre,'% Comisión':com[u.id]||0,'Pedidos':c.n,'Total Vendido':c.total,'Comisión':c.comision};})}],'comisiones_alista.xlsx');
+    exportXLSX([{name:'Comisiones',rows:users.map(function(u){var c=calc(u.id);return {'Preventista':u.nombre||u.username,'% Comisión':com[u.id]||0,'Pedidos vendidos':c.n,'Total vendido':c.total,'Comisión':c.comision};})}],'comisiones_alista.xlsx');
   }
-
   return E('div',null,
+    msg&&E(Alert,{t:msg.t,msg:msg.m,onClose:function(){setMsg(null);}}),
     E('div',{className:'card'},
-      E('div',{className:'card-hd'},E('div',{className:'card-title'},'💵 Comisiones'),E('button',{className:'btn',onClick:doExport},'📊 Excel')),
+      E('div',{className:'card-hd'},E('div',{className:'card-title'},'💵 Comisiones'),E('div',{className:'brow'},E('button',{className:'btn',onClick:cargarComisiones},'🔄 Actualizar'),E('button',{className:'btn ok',onClick:doExport},'📊 Excel'))),
+      E('div',{className:'alert warn'},E('span',null,'Las comisiones se calculan sobre pedidos ENTREGADOS o FINALIZADOS del período seleccionado. Los pendientes no computan.')),
       E(PeriodBar,{val:period,onChange:setPeriod}),
+      E('div',{className:'kpi-row'},
+        E('div',{className:'kpi'},E('div',{className:'kpi-label'},'Total vendido computable'),E('div',{className:'kpi-val'},'$'+$i(totalGeneral))),
+        E('div',{className:'kpi green'},E('div',{className:'kpi-label'},'Comisión total'),E('div',{className:'kpi-val'},'$'+$i(comGeneral)))
+      ),
       users.length===0?E('div',{className:'empty'},'No hay preventistas creados.'):
       E('div',{className:'tw'},E('table',null,
-        E('thead',null,E('tr',null,E('th',null,'Preventista'),E('th',null,'% Comisión'),E('th',null,'Pedidos'),E('th',null,'Total Vendido'),E('th',null,'Comisión'))),
-        E('tbody',null,users.map(function(u){
-          var c=calc(u.id);
-          return E('tr',{key:u.id},
-            E('td',null,E('strong',null,u.nombre)),
-            E('td',null,E('div',{style:{display:'flex',alignItems:'center',gap:6}},
-              E('input',{type:'number',min:0,max:20,step:0.5,value:com[u.id]||0,
-                onChange:function(e){setCom1(u.id,e.target.value);},
-                style:{width:65,padding:'5px 8px',border:'1.5px solid var(--border)',borderRadius:6,fontFamily:'inherit'}}),
-              '%'
-            )),
-            E('td',null,c.n),E('td',null,'$'+$(c.total)),
-            E('td',null,E('strong',{style:{color:'var(--green)'}},'$'+$(c.comision)))
-          );
-        }))
+        E('thead',null,E('tr',null,E('th',null,'Preventista'),E('th',null,'% Comisión'),E('th',null,'Pedidos vendidos'),E('th',null,'Total vendido'),E('th',null,'Comisión'))),
+        E('tbody',null,users.map(function(u){var c=calc(u.id);return E('tr',{key:u.id},
+          E('td',null,E('strong',null,u.nombre||u.username)),
+          E('td',null,E('div',{style:{display:'flex',alignItems:'center',gap:6}},
+            E('input',{type:'number',min:0,max:20,step:0.5,value:com[u.id]||0,onChange:function(e){setCom1(u.id,e.target.value);},style:{width:65,padding:'5px 8px',border:'1.5px solid var(--border)',borderRadius:6,fontFamily:'inherit'}}),'%')),
+          E('td',null,c.n),E('td',null,'$'+$(c.total)),E('td',null,E('strong',{style:{color:'var(--green)'}},'$'+$(c.comision)))
+        );}))
       ))
     )
   );
 }
 
 /* ═══════════════════════════
-   USUARIOS
+   AUDITORÍA DE RECORRIDOS (Admin / CoAdmin)
 ═══════════════════════════ */
+function AuditoriaRecorridos(props){
+  var user=props.user;
+  var isAdminOrCo=user.role==='admin'||user.role==='coadmin';
+  var _u=useState([]),usuarios=_u[0],setUsuarios=_u[1];
+  var _p=useState([]),pedidos=_p[0],setPedidos=_p[1];
+  var _v=useState([]),visitas=_v[0],setVisitas=_v[1];
+  var _m=useState([]),movs=_m[0],setMovs=_m[1];
+  var _c=useState([]),clientes=_c[0],setClientes=_c[1];
+  var _gp=useState([]),gpsRemotos=_gp[0],setGpsRemotos=_gp[1];
+  var _ae=useState([]),auditEventos=_ae[0],setAuditEventos=_ae[1];
+  var hoyIso=(new Date()).toISOString().slice(0,10);
+  var _fd=useState(hoyIso),fechaDesde=_fd[0],setFechaDesde=_fd[1];
+  var _fh=useState(hoyIso),fechaHasta=_fh[0],setFechaHasta=_fh[1];
+  var _sel=useState('todos'),preventistaId=_sel[0],setPreventistaId=_sel[1];
+  var _msg=useState(null),msg=_msg[0],setMsg=_msg[1];
+
+  if(!isAdminOrCo)return E('div',{className:'empty'},'Módulo disponible solo para Administrador o Co-Administrador.');
+
+  function dateInputToAR(v){
+    if(!v)return todayStr();
+    var p=String(v).split('-');
+    if(p.length!==3)return v;
+    return parseInt(p[2],10)+'/'+parseInt(p[1],10)+'/'+p[0];
+  }
+  function dateInputToGpsKey(v){return dateInputToAR(v).replace(/\//g,'-');}
+  function fechaCoincideAudit(f,v){return String(f||'').indexOf(dateInputToAR(v))>=0;}
+  function fechaEnRangoAudit(f){return fechaEnRangoISO(f,fechaDesde,fechaHasta);}
+  function fechaDiaEnRangoAudit(iso){iso=String(iso||'').slice(0,10);return iso&&(!fechaDesde||iso>=fechaDesde)&&(!fechaHasta||iso<=fechaHasta);}
+  function auditLocalEventsForRange(){var synced=auditGetSynced(),pend=auditGetPending();return synced.concat(pend).filter(function(e){return fechaDiaEnRangoAudit(e.fecha_dia);});}
+  function esEntregadoAudit(p){return p.estado==='entregado'||p.estado==='finalizado';}
+  function esRechazadoAudit(p){return p.estado==='cancelado'||((p.devoluciones||[]).length>0);}
+  function preventistaNombre(id){
+    var u=usuarios.find(function(x){return x.id===id;});
+    return u?(u.nombre||u.username):'—';
+  }
+  function gpsKeyFor(id){return 'gps_'+id+'_'+dateInputToGpsKey(fechaDesde);}
+  function gpsPointsFor(id){
+    var remote=gpsRemotos.filter(function(p){return String(p.usuario_id)===String(id)&&fechaDiaEnRangoAudit(p.fecha_dia)&&p.lat&&p.lng;})
+      .map(function(p){return {lat:parseFloat(p.lat),lng:parseFloat(p.lng),ts:parseInt(p.ts,10)||Date.parse(p.created_at||'')||0};})
+      .sort(function(a,b){return (a.ts||0)-(b.ts||0);});
+    if(remote.length)return remote;
+    return gl(gpsKeyFor(id),[]).filter(function(p){return p&&p.lat&&p.lng;});
+  }
+  function distanciaKm(points){
+    function rad(x){return x*Math.PI/180;}
+    var km=0;
+    for(var i=1;i<points.length;i++){
+      var a=points[i-1],b=points[i];
+      var R=6371;
+      var dLat=rad(b.lat-a.lat),dLon=rad(b.lng-a.lng);
+      var s=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)*Math.sin(dLon/2);
+      km+=2*R*Math.atan2(Math.sqrt(s),Math.sqrt(1-s));
+    }
+    return km;
+  }
+  function horaFromTs(ts){
+    if(!ts)return '—';
+    try{return new Date(ts).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});}catch(e){return '—';}
+  }
+  function clienteName(v){return v.cliente_nombre||v.clienteNombre||'Cliente';}
+
+  function cargar(){
+    dbGet('usuarios').then(function(rows){if(Array.isArray(rows))setUsuarios(rows.map(dbToUser).filter(function(u){return u.role==='preventista';}));}).catch(function(){});
+    dbGet('pedidos').then(function(rows){if(Array.isArray(rows))setPedidos(rows.map(dbToPed));}).catch(function(){});
+    dbGet('visitas').then(function(rows){if(Array.isArray(rows))setVisitas(rows);}).catch(function(){});
+    dbGet('movimientos_cc').then(function(rows){if(Array.isArray(rows))setMovs(rows);}).catch(function(){});
+    dbGet('movimientos_cc').then(function(rows){if(Array.isArray(rows))setMovs(rows);}).catch(function(){});
+    dbGetClientesLight().then(function(rows){if(Array.isArray(rows))setClientes(rows.map(dbToCli));}).catch(function(){});
+    dbGet('gps_puntos').then(function(rows){if(Array.isArray(rows))setGpsRemotos(rows);}).catch(function(){});
+    dbGet('auditoria_eventos').then(function(rows){if(Array.isArray(rows))setAuditEventos(rows.concat(auditLocalEventsForRange()));}).catch(function(){setAuditEventos(auditLocalEventsForRange());});
+  }
+  useEffect(function(){cargar();var iv=setInterval(cargar,15000);return function(){clearInterval(iv);};},[fechaDesde,fechaHasta,preventistaId]);
+
+  var preventistas=usuarios.filter(function(u){return u.activo!==false;});
+  var idsSeleccionados=preventistaId==='todos'?preventistas.map(function(u){return u.id;}):[preventistaId];
+  var pedidosDia=pedidos.filter(function(p){return fechaEnRangoAudit(p.fecha)||fechaEnRangoAudit(p.fechaEntregado)||fechaEnRangoAudit(p.fechaPreparado);})
+    .filter(function(p){return preventistaId==='todos'||p.preventistaId===preventistaId;});
+  var visitasDia=visitas.filter(function(v){return fechaEnRangoAudit(v.fecha);})
+    .filter(function(v){return preventistaId==='todos'||v.preventista_id===preventistaId;});
+  var movsDia=movs.filter(function(m){return fechaEnRangoAudit(m.fecha);})
+    .filter(function(m){return preventistaId==='todos'||m.usuario_id===preventistaId;});
+  var eventosDia=auditEventos.filter(function(e){return fechaDiaEnRangoAudit(e.fecha_dia);})
+    .filter(function(e){return preventistaId==='todos'||String(e.usuario_id)===String(preventistaId);});
+  var eventosPedido=eventosDia.filter(function(e){return e.tipo==='pedido';}).length;
+  var eventosVisita=eventosDia.filter(function(e){return e.tipo==='visita';}).length;
+  var eventosCobro=eventosDia.filter(function(e){return e.tipo==='cobro';}).length;
+  var eventosSinGPS=eventosDia.filter(function(e){return e.gps_estado!=='ok';}).length;
+
+  var clientesUnicos={};
+  visitasDia.forEach(function(v){if(v.cliente_id)clientesUnicos[v.cliente_id]=true;});
+  var cobros=movsDia.filter(function(m){return m.tipo==='credito';});
+  var totalCobrado=cobros.reduce(function(s,m){return s+(parseFloat(m.monto)||0);},0);
+  var negativas=visitasDia.filter(function(v){return String(v.observaciones||'').indexOf('SE NEGÓ A PAGAR')>=0;});
+  var pedidosCreados=pedidosDia.filter(function(p){return fechaEnRangoAudit(p.fecha);}).length;
+  var pedidosEntregados=pedidosDia.filter(esEntregadoAudit).length;
+  var pedidosRechazados=pedidosDia.filter(esRechazadoAudit).length;
+
+  function resumenPreventista(u){
+    var vs=visitas.filter(function(v){return v.preventista_id===u.id&&fechaEnRangoAudit(v.fecha);});
+    var ps=pedidos.filter(function(p){return p.preventistaId===u.id&&(fechaEnRangoAudit(p.fecha)||fechaEnRangoAudit(p.fechaEntregado)||fechaEnRangoAudit(p.fechaPreparado));});
+    var ms=movs.filter(function(m){return m.usuario_id===u.id&&fechaEnRangoAudit(m.fecha);});
+    var gps=gpsPointsFor(u.id);
+    var cu={};vs.forEach(function(v){if(v.cliente_id)cu[v.cliente_id]=true;});
+    return {u:u,visitas:vs,pedidos:ps,cobros:ms.filter(function(m){return m.tipo==='credito';}),gps:gps,clientes:Object.keys(cu).length};
+  }
+  var resumenes=preventistas.map(resumenPreventista);
+
+  var selectedGps=[];
+  idsSeleccionados.forEach(function(id){selectedGps=selectedGps.concat(gpsPointsFor(id));});
+  var tracks=[];
+  if(preventistaId!=='todos'){
+    var pts=gpsPointsFor(preventistaId);
+    if(pts.length>1)tracks.push({points:pts,color:'#E31E24'});
+  }else{
+    resumenes.forEach(function(r,i){if(r.gps.length>1)tracks.push({points:r.gps,color:['#E31E24','#1F4788','#1a9e5c','#6d3fd6','#e07b10'][i%5]});});
+  }
+  var markers=visitasDia.filter(function(v){return v.lat&&v.lng;}).map(function(v){
+    var obs=String(v.observaciones||'');
+    var color=obs.indexOf('SE NEGÓ A PAGAR')>=0?'#E31E24':(obs.indexOf('Pago recibido')>=0?'#1a9e5c':'#1F4788');
+    return {lat:v.lat,lng:v.lng,color:color,popup:'<strong>'+clienteName(v)+'</strong><br>'+((v.preventista_nombre)||preventistaNombre(v.preventista_id))+'<br>'+String(v.fecha||'')+'<br>'+obs};
+  });
+
+  function visitasSinPedido(){
+    var pedidosClientes={};
+    pedidosDia.forEach(function(p){if(p.cliente&&p.cliente.id)pedidosClientes[p.cliente.id]=true;});
+    return visitasDia.filter(function(v){return v.cliente_id&&!pedidosClientes[v.cliente_id];});
+  }
+  var sinPedido=visitasSinPedido();
+
+  function exportarAuditoria(){
+    var rows=visitasDia.map(function(v){
+      return {Fecha:v.fecha,Preventista:v.preventista_nombre||preventistaNombre(v.preventista_id),Cliente:clienteName(v),GPS:(v.lat&&v.lng)?(v.lat+','+v.lng):'',Observaciones:v.observaciones||''};
+    });
+    var rowsCobros=cobros.map(function(m){return {Fecha:m.fecha,Preventista:m.usuario_nombre||preventistaNombre(m.usuario_id),Cliente:m.cliente_nombre,Monto:m.monto,Forma:m.forma_pago||'',Referencia:m.referencia||'',Observaciones:m.observaciones||''};});
+    var rowsEventos=eventosDia.map(function(e){return {Fecha:e.fecha,Hora:e.hora,Preventista:e.usuario_nombre,Tipo:e.tipo,Accion:e.accion,Cliente:e.cliente_nombre||'',Pedido:e.pedido_id||'',Monto:e.monto||'',GPS:e.lat&&e.lng?(e.lat+','+e.lng):e.gps_estado,Estado:e.sync_estado||'',Observaciones:e.observaciones||''};});
+    exportXLSX([{name:'Eventos balance',rows:rowsEventos},{name:'Visitas',rows:rows},{name:'Cobros',rows:rowsCobros}], 'Auditoria_Recorridos_'+rangeLabel(fechaDesde,fechaHasta)+'.xlsx');
+  }
+
+  return E('div',null,
+    msg&&E(Alert,{t:msg.t,msg:msg.m,onClose:function(){setMsg(null);}}),
+    E('div',{className:'card'},
+      E('div',{className:'card-hd'},
+        E('div',{className:'card-title'},'🧭 Auditoría de recorridos y cobranzas'),
+        E('div',{className:'brow'},
+          E('label',{style:{fontSize:12,fontWeight:700}},'Desde ',E('input',{className:'fi sm',type:'date',value:fechaDesde,onChange:function(e){setFechaDesde(e.target.value);},style:{width:150}})),
+          E('label',{style:{fontSize:12,fontWeight:700}},'Hasta ',E('input',{className:'fi sm',type:'date',value:fechaHasta,onChange:function(e){setFechaHasta(e.target.value);},style:{width:150}})),
+          E('select',{className:'fs',value:preventistaId,onChange:function(e){setPreventistaId(e.target.value);},style:{width:230}},
+            E('option',{value:'todos'},'Todos los preventistas'),
+            preventistas.map(function(u){return E('option',{key:u.id,value:u.id},u.nombre||u.username);})
+          ),
+          E('button',{className:'btn',onClick:cargar},'🔄 Actualizar'),
+          E('button',{className:'btn ok',onClick:exportarAuditoria},'📤 Exportar')
+        )
+      ),
+      E('div',{className:'alert warn',style:{marginBottom:12}},
+        E('span',null,'Las visitas, cobros, negativas, eventos y puntos GPS quedan guardados para balance del recorrido. Ahora podés filtrar por una fecha o por un rango entre fechas.')
+      ),
+      E('div',{className:'kpi-row'},
+        E('div',{className:'kpi teal'},E('div',{className:'kpi-label'},'Clientes recorridos'),E('div',{className:'kpi-val'},Object.keys(clientesUnicos).length||visitasDia.length)),
+        E('div',{className:'kpi'},E('div',{className:'kpi-label'},'Visitas registradas'),E('div',{className:'kpi-val'},visitasDia.length)),
+        E('div',{className:'kpi green'},E('div',{className:'kpi-label'},'Cobros recibidos'),E('div',{className:'kpi-val'},'$'+$i(totalCobrado))),
+        E('div',{className:'kpi red'},E('div',{className:'kpi-label'},'Negativas de pago'),E('div',{className:'kpi-val'},negativas.length)),
+        E('div',{className:'kpi orange'},E('div',{className:'kpi-label'},'Pedidos creados'),E('div',{className:'kpi-val'},pedidosCreados)),
+        E('div',{className:'kpi purple'},E('div',{className:'kpi-label'},'Entregados / rechazados'),E('div',{className:'kpi-val'},pedidosEntregados+' / '+pedidosRechazados))
+      ),
+      E('div',{className:'kpi-row'},
+        E('div',{className:'kpi teal'},E('div',{className:'kpi-label'},'Eventos balance'),E('div',{className:'kpi-val'},eventosDia.length)),
+        E('div',{className:'kpi orange'},E('div',{className:'kpi-label'},'Pedidos / visitas / cobros'),E('div',{className:'kpi-val'},eventosPedido+' / '+eventosVisita+' / '+eventosCobro)),
+        E('div',{className:'kpi red'},E('div',{className:'kpi-label'},'Eventos sin GPS'),E('div',{className:'kpi-val'},eventosSinGPS))
+      )
+    ),
+
+    E('div',{className:'grid2'},
+      E('div',{className:'card'},
+        E('div',{className:'card-hd'},E('div',{className:'card-title'},'🗺️ Mapa de recorrido, visitas y cobros')),
+        (tracks.length||markers.length)?E(LeafletMap,{height:'420px',tracks:tracks,markers:markers,noFit:false}):E('div',{className:'empty'},'No hay puntos GPS ni visitas con ubicación para la fecha seleccionada.')
+      ),
+      E('div',{className:'card'},
+        E('div',{className:'card-hd'},E('div',{className:'card-title'},'📌 Resumen por preventista')),
+        E('div',{className:'tw'},E('table',null,
+          E('thead',null,E('tr',null,E('th',null,'Preventista'),E('th',null,'GPS'),E('th',null,'Inicio'),E('th',null,'Fin'),E('th',null,'Km aprox.'),E('th',null,'Visitas'),E('th',null,'Cobros'))),
+          E('tbody',null,resumenes.length?resumenes.map(function(r){
+            var km=distanciaKm(r.gps);
+            var cob=r.cobros.reduce(function(s,m){return s+(parseFloat(m.monto)||0);},0);
+            return E('tr',{key:r.u.id},
+              E('td',null,E('strong',null,r.u.nombre||r.u.username)),
+              E('td',null,r.gps.length+' pts'),
+              E('td',null,r.gps.length?horaFromTs(r.gps[0].ts):'—'),
+              E('td',null,r.gps.length?horaFromTs(r.gps[r.gps.length-1].ts):'—'),
+              E('td',null,km?km.toFixed(1):'—'),
+              E('td',null,r.visitas.length),
+              E('td',null,'$'+$i(cob))
+            );
+          }):E('tr',null,E('td',{colSpan:7,className:'empty'},'Sin preventistas cargados.')))
+        ))
+      )
+    ),
+
+    E('div',{className:'card'},
+      E('div',{className:'card-hd'},E('div',{className:'card-title'},'🏪 Visitas, cobros y motivos')),
+      E('div',{className:'tw'},E('table',null,
+        E('thead',null,E('tr',null,E('th',null,'Hora'),E('th',null,'Preventista'),E('th',null,'Cliente'),E('th',null,'Tipo'),E('th',null,'Detalle'),E('th',null,'GPS'))),
+        E('tbody',null,visitasDia.length?visitasDia.sort(function(a,b){return String(a.fecha||'').localeCompare(String(b.fecha||''));}).map(function(v){
+          var obs=String(v.observaciones||'');
+          var tipo=obs.indexOf('SE NEGÓ A PAGAR')>=0?'Negativa':(obs.indexOf('Pago recibido')>=0?'Cobro':'Visita');
+          return E('tr',{key:v.id},
+            E('td',null,horaSolo(v.fecha)),
+            E('td',null,v.preventista_nombre||preventistaNombre(v.preventista_id)),
+            E('td',null,clienteName(v)),
+            E('td',null,E('span',{className:'badge '+(tipo==='Negativa'?'off':'on')},tipo)),
+            E('td',null,obs||'—'),
+            E('td',null,(v.lat&&v.lng)?E('a',{href:'https://www.google.com/maps?q='+v.lat+','+v.lng,target:'_blank'},'Abrir mapa'):'—')
+          );
+        }):E('tr',null,E('td',{colSpan:6,className:'empty'},'No hay visitas registradas.')))
+      ))
+    ),
+
+    E('div',{className:'card'},
+      E('div',{className:'card-hd'},E('div',{className:'card-title'},'🧾 Balance de actividad offline/online')),
+      E('div',{className:'alert ok'},E('span',null,'Estos eventos se guardan en el teléfono aunque no haya internet y se sincronizan cuando vuelve la conexión. El GPS acompaña, pero no bloquea el registro.')),
+      E('div',{className:'tw'},E('table',null,
+        E('thead',null,E('tr',null,E('th',null,'Hora'),E('th',null,'Preventista'),E('th',null,'Tipo'),E('th',null,'Acción'),E('th',null,'Cliente'),E('th',null,'GPS'),E('th',null,'Estado'))),
+        E('tbody',null,eventosDia.length?eventosDia.sort(function(a,b){return (a.ts||0)-(b.ts||0);}).map(function(e){return E('tr',{key:e.id},
+          E('td',null,e.hora||horaSolo(e.fecha)),
+          E('td',null,e.usuario_nombre||preventistaNombre(e.usuario_id)),
+          E('td',null,E('span',{className:'badge on'},e.tipo||'evento')),
+          E('td',null,e.accion||'—'),
+          E('td',null,e.cliente_nombre||'—'),
+          E('td',null,(e.lat&&e.lng)?E('a',{href:'https://www.google.com/maps?q='+e.lat+','+e.lng,target:'_blank'},'Abrir mapa'):(e.gps_estado||'sin_gps')),
+          E('td',null,e.sync_estado||'sincronizado')
+        );}):E('tr',null,E('td',{colSpan:7,className:'empty'},'Todavía no hay eventos de balance para la fecha seleccionada.')))
+      ))
+    ),
+
+    E('div',{className:'grid2'},
+      E('div',{className:'card'},
+        E('div',{className:'card-hd'},E('div',{className:'card-title'},'💳 Cobros registrados')),
+        E('div',{className:'tw'},E('table',null,
+          E('thead',null,E('tr',null,E('th',null,'Hora'),E('th',null,'Preventista'),E('th',null,'Cliente'),E('th',null,'Monto'),E('th',null,'Forma'))),
+          E('tbody',null,cobros.length?cobros.map(function(m){return E('tr',{key:m.id},
+            E('td',null,horaSolo(m.fecha)),
+            E('td',null,m.usuario_nombre||preventistaNombre(m.usuario_id)),
+            E('td',null,m.cliente_nombre||'—'),
+            E('td',null,E('strong',null,'$'+$(m.monto))),
+            E('td',null,m.forma_pago||'—')
+          );}):E('tr',null,E('td',{colSpan:5,className:'empty'},'Sin cobros registrados.')))
+        ))
+      ),
+      E('div',{className:'card'},
+        E('div',{className:'card-hd'},E('div',{className:'card-title'},'⚠️ Visitas sin pedido / sin compra')),
+        E('div',{className:'tw'},E('table',null,
+          E('thead',null,E('tr',null,E('th',null,'Cliente'),E('th',null,'Preventista'),E('th',null,'Hora'),E('th',null,'Observación'))),
+          E('tbody',null,sinPedido.length?sinPedido.map(function(v){return E('tr',{key:v.id},
+            E('td',null,clienteName(v)),
+            E('td',null,v.preventista_nombre||preventistaNombre(v.preventista_id)),
+            E('td',null,horaSolo(v.fecha)),
+            E('td',null,v.observaciones||'—')
+          );}):E('tr',null,E('td',{colSpan:4,className:'empty'},'No hay visitas sin pedido para esta fecha.')))
+        ))
+      )
+    )
+  );
+}
+
+
+
+// Funciones restauradas V49 para evitar pantalla en blanco
+function BottomNav(props){
+  var user=props.user;
+  var mod=props.mod;
+  var setMod=props.setMod;
+  var isPrev=user.role==='preventista';
+  var isPrep=user.role==='preparador';
+  var isAdminOrCo=user.role==='admin'||user.role==='coadmin';
+  var pedidos=gl('pedidos',[]);
+  var pendCount=pedidos.filter(function(p){return p.estado==='pendiente';}).length;
+  var readyCount=pedidos.filter(function(p){return p.estado==='preparado'&&p.preventistaId===user.id;}).length;
+
+  function item(id,icon,label,badge){
+    return E('button',{key:id,className:'bn-item'+(mod===id?' on':''),onClick:function(){setMod(id);}},
+      badge>0&&E('span',{className:'bn-dot'}),
+      E('span',{className:'bn-icon'},icon),
+      E('span',null,label)
+    );
+  }
+
+  if(isPrev) return E('div',{className:'bottom-nav'},
+    item('dashboard','📊','Inicio'),
+    item('nuevo-pedido','🛒','Pedido'),
+    item('ofertas','🔥','Ofertas Relámpago'),
+    item('mis-pedidos','📦','Mis Pedidos',readyCount),
+    item('clientes','👥','Clientes'),
+    item('cuentas-corrientes','💳','CC'),
+    item('mapa-gps','🗺️','GPS')
+  );
+
+  if(isPrep) return E('div',{className:'bottom-nav'},
+    item('dashboard','📊','Inicio'),
+    item('cola-prep','⚙️','Preparar',pendCount),
+    item('todos-pedidos','📋','Pedidos'),
+    item('articulos','📦','Artículos')
+  );
+
+  if(isAdminOrCo) return E('div',{className:'bottom-nav'},
+    item('dashboard','📊','Inicio'),
+    item('nuevo-pedido','🛒','Pedido'),
+    item('cola-prep','⚙️','Preparar',pendCount),
+    item('todos-pedidos','📋','Pedidos'),
+    item('clientes','👥','Clientes'),
+    item('cuentas-corrientes','💳','CC'),
+    item('ofertas','🔥','Ofertas Relámpago'),
+    item('mapa-admin','🗺️','GPS'),
+    item('auditoria','🧭','Auditoría')
+  );
+
+  return null;
+}
+
+function ObjetivosPreventistas(props){
+  var user=props.user;
+  var isAdminOrCo=user.role==='admin'||user.role==='coadmin';
+  var _u=useState([]),usuarios=_u[0],setUsuarios=_u[1];
+  var _o=useState([]),objetivos=_o[0],setObjetivos=_o[1];
+  var _msg=useState(null),msg=_msg[0],setMsg=_msg[1];
+  var hoy=(new Date()).toISOString().slice(0,10);
+  var _f=useState({usuarioId:'',fechaDesde:hoy,fechaHasta:hoy,objetivoVisitas:20,objetivoPedidos:8,objetivoVentas:0,objetivoCobranza:0}),form=_f[0],setForm=_f[1];
+
+  if(!isAdminOrCo)return E('div',{className:'empty'},'Módulo disponible solo para Administrador o Co-Administrador.');
+
+  function flash(t,m){setMsg({t:t,m:m});setTimeout(function(){setMsg(null);},3500);}
+  function cargar(){
+    dbGet('usuarios').then(function(rows){
+      var us=(Array.isArray(rows)?rows:[]).map(dbToUser).filter(function(u){return u.role==='preventista'&&u.activo!==false;});
+      setUsuarios(us);
+      if(!form.usuarioId&&us[0])setForm(Object.assign({},form,{usuarioId:us[0].id}));
+    }).catch(function(){});
+    dbGet('objetivos_preventistas').then(function(rows){if(Array.isArray(rows))setObjetivos(rows.map(dbToObj));}).catch(function(){});
+  }
+  useEffect(function(){cargar();},[]);
+  function set(k,v){setForm(Object.assign({},form,{[k]:v}));}
+  function userName(id){var u=usuarios.find(function(x){return x.id===id;});return u?(u.nombre||u.username):id;}
+
+  function guardar(){
+    if(!form.usuarioId){flash('err','Seleccioná un preventista.');return;}
+    if(!form.fechaDesde||!form.fechaHasta){flash('err','Completá fecha desde y hasta.');return;}
+    if(form.fechaHasta<form.fechaDesde){flash('err','La fecha hasta no puede ser menor que desde.');return;}
+    var id='obj_'+form.usuarioId+'_'+form.fechaDesde+'_'+form.fechaHasta;
+    var row=objToDb(Object.assign({},form,{id:id,usuarioNombre:userName(form.usuarioId),activo:true}));
+    dbUpsert('objetivos_preventistas',row).then(function(){flash('ok','Objetivo guardado.');cargar();})
+      .catch(function(e){flash('err','No se pudo guardar: '+e.message);});
+  }
+  function desactivar(o){
+    if(!confirm('¿Desactivar objetivo de '+(o.usuarioNombre||userName(o.usuarioId))+'?'))return;
+    dbUpdate('objetivos_preventistas',o.id,{activo:false}).then(function(){flash('ok','Objetivo desactivado.');cargar();})
+      .catch(function(){flash('err','No se pudo desactivar.');});
+  }
+  var activos=objetivos.filter(function(o){return o.activo!==false;}).sort(function(a,b){return String(b.fechaDesde).localeCompare(String(a.fechaDesde));});
+
+  return E('div',null,
+    msg&&E(Alert,{t:msg.t,msg:msg.m,onClose:function(){setMsg(null);}}),
+    E('div',{className:'card'},
+      E('div',{className:'card-hd'},
+        E('div',{className:'card-title'},'🎯 Objetivos simples para preventistas'),
+        E('button',{className:'btn',onClick:cargar},'🔄 Actualizar')
+      ),
+      E('div',{className:'alert warn'},E('span',null,'Versión simple: cargá metas por período para visitas, pedidos, ventas y cobranza. El preventista las ve en su Dashboard.')),
+      E('div',{className:'grid2'},
+        E('div',{className:'fg'},E('label',null,'Preventista'),
+          E('select',{className:'fs',value:form.usuarioId,onChange:function(e){set('usuarioId',e.target.value);}},
+            E('option',{value:''},'Seleccionar preventista'),
+            usuarios.map(function(u){return E('option',{key:u.id,value:u.id},u.nombre||u.username);})
+          )
+        ),
+        E('div',{className:'fg'},E('label',null,'Objetivo de visitas'),E('input',{className:'fi',type:'number',min:0,value:form.objetivoVisitas,onChange:function(e){set('objetivoVisitas',e.target.value);}})),
+        E('div',{className:'fg'},E('label',null,'Desde'),E('input',{className:'fi',type:'date',value:form.fechaDesde,onChange:function(e){set('fechaDesde',e.target.value);}})),
+        E('div',{className:'fg'},E('label',null,'Hasta'),E('input',{className:'fi',type:'date',value:form.fechaHasta,onChange:function(e){set('fechaHasta',e.target.value);}})),
+        E('div',{className:'fg'},E('label',null,'Objetivo de pedidos'),E('input',{className:'fi',type:'number',min:0,value:form.objetivoPedidos,onChange:function(e){set('objetivoPedidos',e.target.value);}})),
+        E('div',{className:'fg'},E('label',null,'Objetivo de ventas $'),E('input',{className:'fi',type:'number',min:0,value:form.objetivoVentas,onChange:function(e){set('objetivoVentas',e.target.value);}})),
+        E('div',{className:'fg'},E('label',null,'Objetivo de cobranza $'),E('input',{className:'fi',type:'number',min:0,value:form.objetivoCobranza,onChange:function(e){set('objetivoCobranza',e.target.value);}}))
+      ),
+      E('button',{className:'btn pri',onClick:guardar},'💾 Guardar objetivo')
+    ),
+    E('div',{className:'card'},
+      E('div',{className:'card-hd'},E('div',{className:'card-title'},'📋 Objetivos activos')),
+      E('div',{className:'tw'},E('table',null,
+        E('thead',null,E('tr',null,E('th',null,'Preventista'),E('th',null,'Período'),E('th',null,'Visitas'),E('th',null,'Pedidos'),E('th',null,'Ventas'),E('th',null,'Cobranza'),E('th',null,'Acción'))),
+        E('tbody',null,activos.length?activos.map(function(o){return E('tr',{key:o.id},
+          E('td',null,o.usuarioNombre||userName(o.usuarioId)),
+          E('td',null,o.fechaDesde+' → '+o.fechaHasta),
+          E('td',null,o.objetivoVisitas),
+          E('td',null,o.objetivoPedidos),
+          E('td',null,'$'+$i(o.objetivoVentas)),
+          E('td',null,'$'+$i(o.objetivoCobranza)),
+          E('td',null,E('button',{className:'btn sm dan',onClick:function(){desactivar(o);}},'Desactivar'))
+        );}):E('tr',null,E('td',{colSpan:7,className:'empty'},'Todavía no hay objetivos cargados.')))
+      ))
+    )
+  );
+}
+
 function Usuarios(props){
   var currentUser=(props&&props.user)||getAdmin();
   var isAdmin=currentUser.role==='admin';
@@ -4502,9 +5128,6 @@ function Usuarios(props){
   );
 }
 
-/* ═══════════════════════════
-   CONFIGURACIÓN
-═══════════════════════════ */
 function Configuracion(){
   var _a=useState(gl('cfg',{descGlobal:5,descXUser:{}})),cfg=_a[0],setCfg=_a[1];
   var _b=useState(null),msg=_b[0],setMsg=_b[1];
@@ -4622,700 +5245,9 @@ function Configuracion(){
   );
 }
 
-/* ═══════════════════════════
-   APP ROOT
-═══════════════════════════ */
-/* ═══════════════════════════
-   BOTTOM NAV (mobile)
-═══════════════════════════ */
-function BottomNav(props){
-  var user=props.user;
-  var mod=props.mod;
-  var setMod=props.setMod;
-  var isPrev=user.role==='preventista';
-  var isPrep=user.role==='preparador';
-  var isAdminOrCo=user.role==='admin'||user.role==='coadmin';
-  var pedidos=gl('pedidos',[]);
-  var pendCount=pedidos.filter(function(p){return p.estado==='pendiente';}).length;
-  var readyCount=pedidos.filter(function(p){return p.estado==='preparado'&&p.preventistaId===user.id;}).length;
-
-  function item(id,icon,label,badge){
-    return E('button',{key:id,className:'bn-item'+(mod===id?' on':''),onClick:function(){setMod(id);}},
-      badge>0&&E('span',{className:'bn-dot'}),
-      E('span',{className:'bn-icon'},icon),
-      E('span',null,label)
-    );
-  }
-
-  if(isPrev) return E('div',{className:'bottom-nav'},
-    item('dashboard','📊','Inicio'),
-    item('nuevo-pedido','🛒','Pedido'),
-    item('ofertas','🔥','Ofertas Relámpago'),
-    item('mis-pedidos','📦','Mis Pedidos',readyCount),
-    item('clientes','👥','Clientes'),
-    item('cuentas-corrientes','💳','CC'),
-    item('mapa-gps','🗺️','GPS')
-  );
-
-  if(isPrep) return E('div',{className:'bottom-nav'},
-    item('dashboard','📊','Inicio'),
-    item('cola-prep','⚙️','Preparar',pendCount),
-    item('todos-pedidos','📋','Pedidos'),
-    item('articulos','📦','Artículos')
-  );
-
-  if(isAdminOrCo) return E('div',{className:'bottom-nav'},
-    item('dashboard','📊','Inicio'),
-    item('nuevo-pedido','🛒','Pedido'),
-    item('cola-prep','⚙️','Preparar',pendCount),
-    item('todos-pedidos','📋','Pedidos'),
-    item('clientes','👥','Clientes'),
-    item('cuentas-corrientes','💳','CC'),
-    item('ofertas','🔥','Ofertas Relámpago'),
-    item('mapa-admin','🗺️','GPS'),
-    item('auditoria','🧭','Auditoría')
-  );
-
-  return null;
-}
-
-
-
-
-/* ═══════════════════════════
-   OFERTAS RELAMPAGO + FLYER A4
-═══════════════════════════ */
-function OfertasPreventistas(props){
-  var user=props.user;
-  var isAdminOrCo=user.role==='admin'||user.role==='coadmin';
-  var isPrev=user.role==='preventista';
-  var _of=useState([]),ofertas=_of[0],setOfertas=_of[1];
-  var _arts=useState([]),arts=_arts[0],setArts=_arts[1];
-  var _q=useState(''),q=_q[0],setQ=_q[1];
-  var _sel=useState(null),sel=_sel[0],setSel=_sel[1];
-  var _msg=useState(null),msg=_msg[0],setMsg=_msg[1];
-  var _ids=useState([]),selectedIds=_ids[0],setSelectedIds=_ids[1];
-  var _mode=useState('catalogo'),flyerMode=_mode[0],setFlyerMode=_mode[1];
-  var flyerRef=useRef(null);
-  var hoy=(new Date()).toISOString().slice(0,10);
-  var _edit=useState(null),editando= _edit[0],setEditando=_edit[1];
-  var _f=useState({precioOferta:'',precioAnterior:'',mostrarPrecioAnterior:true,fechaDesde:hoy,fechaHasta:'',mostrarVigencia:true,stockInfo:'',observacion:'',fotoUrl:'',mostrarFlyer:true,ordenFlyer:0}),form=_f[0],setForm=_f[1];
-
-  if(!(isAdminOrCo||isPrev))return E('div',{className:'empty'},'Módulo no disponible para tu rol.');
-
-  function flash(t,m){setMsg({t:t,m:m});setTimeout(function(){setMsg(null);},4500);}
-  function set(k,v){setForm(Object.assign({},form,{[k]:v}));}
-  function cargar(){
-    dbGet('ofertas_preventistas').then(function(rows){
-      setOfertas((Array.isArray(rows)?rows:[]).map(dbToOferta));
-    }).catch(function(e){flash('err','No se pudieron cargar ofertas relámpago. Ejecutá el SQL V29 de ofertas/flyer si todavía no lo hiciste.');});
-    if(isAdminOrCo){
-      dbGet('articulos').then(function(rows){
-        setArts((Array.isArray(rows)?rows:[]).map(dbToArt).filter(function(a){return a.estado!=='inactivo';}));
-      }).catch(function(){});
-    }
-  }
-  useEffect(function(){cargar();},[]);
-
-  var buscados=arts.map(function(a){return {a:a,s:artScore(a,q)};})
-    .filter(function(x){return !q||!q.trim()||x.s>0;})
-    .sort(function(x,y){return (y.s-x.s)||String(x.a.desc||'').localeCompare(String(y.a.desc||''),'es');})
-    .slice(0,12).map(function(x){return x.a;});
-
-  function elegirArticulo(a){
-    setSel(a);
-    setForm(Object.assign({},form,{precioOferta:a.precio||0,precioAnterior:a.precio||0}));
-  }
-  function onFoto(e){
-    var file=e.target.files&&e.target.files[0];
-    if(!file)return;
-    fileToCompressedDataUrl(file,900,0.78).then(function(data){set('fotoUrl',data);})
-      .catch(function(err){flash('err',err.message||'No se pudo cargar la foto.');});
-  }
-  function guardar(){
-    if(!isAdminOrCo){flash('err','Solo Admin o Co-Admin puede crear ofertas relámpago.');return;}
-    if(!sel){flash('err','Elegí un artículo del catálogo o editá una oferta existente.');return;}
-    if(!form.precioOferta||parseFloat(form.precioOferta)<=0){flash('err','Cargá un precio de oferta relámpago válido.');return;}
-    if((parseFloat(form.precioOferta)||0)<(parseFloat(sel.costo)||0)){flash('err','El precio de oferta no puede quedar por debajo del precio de costo.');return;}
-    if(!form.fechaDesde){flash('err','Completá la fecha desde.');return;}
-    if(form.fechaHasta&&form.fechaHasta<form.fechaDesde){flash('err','La fecha hasta no puede ser menor que desde.');return;}
-    var row=ofertaToDb({
-      id:editando&&editando.id?editando.id:'of_'+sel.id,
-      articuloId:sel.id,
-      cod:sel.cod,
-      codArt:sel.codArt,
-      descripcion:sel.desc,
-      precioRegular:(form.mostrarPrecioAnterior?parseFloat(form.precioAnterior||sel.precio||0):(sel.precio||0)),
-      precioOferta:form.precioOferta,
-      costo:sel.costo||0,
-      fechaDesde:form.fechaDesde,
-      fechaHasta:form.fechaHasta||null,
-      stockInfo:form.stockInfo,
-      observacion:form.observacion,
-      fotoUrl:form.fotoUrl||'',
-      mostrarFlyer:form.mostrarFlyer!==false,
-      mostrarPrecioAnterior:form.mostrarPrecioAnterior!==false,
-      mostrarVigencia:form.mostrarVigencia!==false,
-      ordenFlyer:form.ordenFlyer||0,
-      activo:true,
-      createdBy:user.id,
-      coincidenciaDudosa:false,
-      estadoRevision:'ok',
-      revisionMotivo:'Revisada manualmente por administrador.'
-    });
-    dbUpsert('ofertas_preventistas',row).then(function(){
-      flash('ok',editando?'Oferta relámpago editada.':'Oferta relámpago guardada. El precio se aplicará automáticamente al cargar el pedido.');
-      setEditando(null);setSel(null);setQ('');
-      setForm({precioOferta:'',precioAnterior:'',mostrarPrecioAnterior:true,fechaDesde:hoy,fechaHasta:'',mostrarVigencia:true,stockInfo:'',observacion:'',fotoUrl:'',mostrarFlyer:true,ordenFlyer:0});
-      cargar();
-    }).catch(function(e){flash('err','No se pudo guardar: '+e.message);});
-  }
-  function editarOferta(o){
-    if(!isAdminOrCo)return;
-    var art=(arts||[]).find(function(a){return a.id===o.articuloId||String(a.cod||'')===String(o.cod||'')||String(a.codArt||'')===String(o.codArt||'');});
-    if(!art){art={id:o.articuloId||o.id,cod:o.cod,codArt:o.codArt,desc:o.descripcion,precio:o.precioRegular,costo:o.costo,estado:'activo'};}
-    setEditando(o);setSel(art);setQ(o.descripcion||o.cod||'');
-    setForm({
-      precioOferta:o.precioOferta||'',precioAnterior:o.precioRegular||'',mostrarPrecioAnterior:o.mostrarPrecioAnterior!==false,
-      fechaDesde:o.fechaDesde||hoy,fechaHasta:o.fechaHasta||'',mostrarVigencia:o.mostrarVigencia!==false,
-      stockInfo:o.stockInfo||'',observacion:o.observacion||'',fotoUrl:o.fotoUrl||'',mostrarFlyer:o.mostrarFlyer!==false,ordenFlyer:o.ordenFlyer||0
-    });
-    flash('ok','Editando oferta relámpago: '+(o.descripcion||''));
-    try{window.scrollTo({top:0,behavior:'smooth'});}catch(e){window.scrollTo(0,0);}
-  }
-  function cancelarEdicion(){
-    setEditando(null);setSel(null);setQ('');
-    setForm({precioOferta:'',precioAnterior:'',mostrarPrecioAnterior:true,fechaDesde:hoy,fechaHasta:'',mostrarVigencia:true,stockInfo:'',observacion:'',fotoUrl:'',mostrarFlyer:true,ordenFlyer:0});
-  }
-  function cambiarEstado(o,activo){
-    dbUpdate('ofertas_preventistas',o.id,{activo:activo}).then(function(){flash('ok',activo?'Oferta relámpago reactivada.':'Oferta relámpago desactivada.');cargar();})
-      .catch(function(){flash('err','No se pudo actualizar la oferta relámpago.');});
-  }
-  function borrar(o){
-    if(!confirm('¿Eliminar definitivamente la oferta relámpago de '+o.descripcion+'?'))return;
-    dbDelete('ofertas_preventistas',o.id).then(function(){flash('ok','Oferta relámpago eliminada.');cargar();})
-      .catch(function(){flash('err','No se pudo eliminar.');});
-  }
-  function toggleSelect(id){
-    setSelectedIds(selectedIds.indexOf(id)>=0?selectedIds.filter(function(x){return x!==id;}):selectedIds.concat([id]));
-  }
-
-  var visibles=isAdminOrCo?ofertas:ofertas.filter(function(o){return ofertaVigente(o,hoy);});
-  visibles=visibles.slice().sort(function(a,b){
-    var av=ofertaVigente(a,hoy)?0:1,bv=ofertaVigente(b,hoy)?0:1;
-    return (av-bv)||((a.ordenFlyer||0)-(b.ordenFlyer||0))||String(a.descripcion||'').localeCompare(String(b.descripcion||''),'es');
-  });
-  var vigentes=visibles.filter(function(o){return ofertaVigente(o,hoy)&&o.mostrarFlyer!==false;});
-  var flyerOfertas=vigentes;
-  if(flyerMode==='seleccion')flyerOfertas=vigentes.filter(function(o){return selectedIds.indexOf(o.id)>=0;});
-  if(flyerMode==='destacado')flyerOfertas=vigentes.filter(function(o){return selectedIds.indexOf(o.id)>=0;}).slice(0,1);
-  if(flyerMode==='destacado'&&flyerOfertas.length===0&&vigentes[0])flyerOfertas=[vigentes[0]];
-
-  function chunks(arr,n){var out=[];for(var i=0;i<arr.length;i+=n)out.push(arr.slice(i,i+n));return out;}
-  function printFlyer(){
-    document.body.classList.add('print-flyer-mode');
-    setTimeout(function(){window.print();setTimeout(function(){document.body.classList.remove('print-flyer-mode');},400);},80);
-  }
-  function exportFlyerImg(){
-    if(!window.html2canvas){flash('err','No se pudo cargar html2canvas para exportar imagen.');return;}
-    if(!flyerRef.current){flash('err','No hay flyer para exportar.');return;}
-    var pages=Array.prototype.slice.call(flyerRef.current.querySelectorAll('.flyer-a4'));
-    if(!pages.length){flash('err','No hay páginas A4 para exportar.');return;}
-    var host=document.createElement('div');
-    host.className='flyer-export-host';
-    document.body.appendChild(host);
-    var clones=pages.map(function(page){
-      var clone=page.cloneNode(true);
-      host.appendChild(clone);
-      return clone;
-    });
-    flash('ok','Generando imagen'+(pages.length>1?'es por hoja A4…':'…'));
-    function cleanup(){if(host&&host.parentNode)host.parentNode.removeChild(host);}
-    function renderPage(i){
-      var page=clones[i];
-      return window.html2canvas(page,{scale:3,backgroundColor:'#ffffff',useCORS:true,logging:false,windowWidth:794,windowHeight:1123,width:794,height:page.scrollHeight,scrollX:0,scrollY:0}).then(function(canvas){
-        var n=String(i+1).padStart(2,'0');
-        var fname=pages.length>1?'Oferta_Relampago_ALISTA_AHORRO_Hoja_'+n+'.png':'Oferta_Relampago_ALISTA_AHORRO.png';
-        descargarDataUrl(canvas.toDataURL('image/png'),fname);
-        return new Promise(function(resolve){setTimeout(resolve,350);});
-      });
-    }
-    var p=Promise.resolve();
-    pages.forEach(function(_,i){p=p.then(function(){return renderPage(i);});});
-    p.then(function(){cleanup();flash('ok',pages.length>1?'Imágenes generadas por hoja A4.':'Imagen generada.');})
-      .catch(function(e){cleanup();flash('err','No se pudo generar imagen: '+e.message);});
-  }
-
-  function ofertaCard(o){
-    var vig=ofertaVigente(o,hoy);
-    return E('div',{key:o.id,className:'offer-card '+(vig?'':'off')},
-      isAdminOrCo&&E('label',{className:'offer-select'},
-        E('input',{type:'checkbox',checked:selectedIds.indexOf(o.id)>=0,onChange:function(){toggleSelect(o.id);}}),' Usar en flyer seleccionado'
-      ),
-      o.fotoUrl&&E('img',{className:'offer-thumb',src:o.fotoUrl,alt:o.descripcion||'Oferta'}),
-      E('div',{className:'offer-top'},
-        E('div',null,
-          E('div',{className:'offer-title'},o.descripcion||'Artículo sin descripción'),
-          E('div',{className:'offer-code'},'Código: '+(o.cod||'—')+(o.codArt?' · '+o.codArt:''))
-        ),
-        E('span',{className:'pill '+(vig?'ok':'bad')},vig?'vigente':'no vigente')
-      ),
-      (o.coincidenciaDudosa||o.estadoRevision==='revisar')&&E('div',{className:'alert warn',style:{marginTop:8,marginBottom:8}},E('span',null,'⚠ Revisar: coincidencia dudosa con la última lista. '+(o.revisionMotivo||''))),
-      E('div',{className:'offer-prices'},
-        o.mostrarPrecioAnterior!==false&&E('div',null,E('small',null,'Precio anterior'),E('del',null,'$'+$(o.precioRegular))),
-        E('div',null,E('small',null,'Oferta Relámpago'),E('strong',null,'$'+$(o.precioOferta)))
-      ),
-      E('div',{className:'offer-meta'},
-        o.mostrarVigencia!==false&&E('span',null,'Desde: '+(o.fechaDesde||'—')),
-        o.mostrarVigencia!==false&&E('span',null,'Hasta: '+(o.fechaHasta||'sin fecha'))
-      ),
-      o.stockInfo&&E('div',{className:'offer-note'},'Stock / condición: '+o.stockInfo),
-      o.observacion&&E('div',{className:'offer-note'},'Obs.: '+o.observacion),
-      isAdminOrCo&&E('div',{className:'brow',style:{marginTop:10}},
-        E('button',{className:'btn sm',onClick:function(){editarOferta(o);}},'Editar'),
-        E('button',{className:'btn sm '+(o.activo===false?'ok':'warn'),onClick:function(){cambiarEstado(o,o.activo===false);}},o.activo===false?'Reactivar':'Desactivar'),
-        E('button',{className:'btn sm dan',onClick:function(){borrar(o);}},'Eliminar')
-      )
-    );
-  }
-  function flyerItem(o,big){
-    return E('div',{className:big?'flyer-product featured':'flyer-product'},
-      E('div',{className:'flyer-img-wrap'},o.fotoUrl?E('img',{src:o.fotoUrl,alt:o.descripcion||'Oferta'}):E('div',{className:'flyer-no-img'},'SIN FOTO')),
-      E('div',{className:'flyer-prod-name'},o.descripcion||'Producto'),
-      E('div',{className:'flyer-code'},'Código: '+(o.cod||'—')),
-      o.mostrarPrecioAnterior!==false&&o.precioRegular>0&&E('div',{className:'flyer-prev'},'Antes $'+$(o.precioRegular)),
-      E('div',{className:'flyer-price'},'$'+$(o.precioOferta)),
-      o.mostrarVigencia!==false&&E('div',{className:'flyer-valid'},o.fechaHasta?'Válido hasta '+o.fechaHasta:'Oferta vigente')
-    );
-  }
-  function flyerHeader(){return E('div',{className:'flyer-header'},
-    E('img',{src:'assets/img/logo-alista-ahorro.png',alt:'ALISTA AHORRO'}),
-    E('div',{className:'flyer-title-wrap'},
-      E('div',{className:'flyer-title'},'OFERTA RELÁMPAGO'),
-      E('div',{className:'flyer-sub'},'Precios especiales por tiempo limitado')
-    )
-  );}
-  function flyerFooter(){return E('div',{className:'flyer-footer'},
-    E('span',null,'WhatsApp: '+BIZ.wa),
-    E('span',null,'Instagram: '+BIZ.instagram),
-    E('span',null,BIZ.dir)
-  );}
-  function flyerPreview(){
-    if(!flyerOfertas.length)return E('div',{className:'empty'},'No hay ofertas relámpago vigentes para armar el flyer.');
-    if(flyerMode==='destacado')return E('div',{className:'flyer-a4 flyer-single'},flyerHeader(),E('div',{className:'flyer-single-body'},flyerItem(flyerOfertas[0],true)),flyerFooter());
-    return E('div',null,chunks(flyerOfertas,8).map(function(page,idx){return E('div',{key:idx,className:'flyer-a4'},
-      flyerHeader(),
-      E('div',{className:'flyer-grid-8'},page.map(function(o){return flyerItem(o,false);})),
-      flyerFooter()
-    );}));
-  }
-
-  return E('div',null,
-    msg&&E(Alert,{t:msg.t,msg:msg.m,onClose:function(){setMsg(null);}}),
-    isAdminOrCo&&E('div',{className:'card'},
-      E('div',{className:'card-hd'},
-        E('div',{className:'card-title'},editando?'✏️ Editar oferta relámpago':'🔥 Crear oferta relámpago para preventistas'),
-        E('div',{className:'brow'},editando&&E('button',{className:'btn',onClick:cancelarEdicion},'Cancelar edición'),E('button',{className:'btn',onClick:cargar},'🔄 Actualizar'))
-      ),
-      E('div',{className:'alert warn'},E('span',null,'El precio de oferta se aplica automáticamente cuando el preventista carga el producto en un pedido.')),
-      E('div',{className:'fg'},E('label',null,'Buscar artículo'),
-        E('input',{className:'fi',value:q,onChange:function(e){setQ(e.target.value);},placeholder:'Código o descripción…'})
-      ),
-      q&&E('div',{className:'offer-search-list'},buscados.length?buscados.map(function(a){return E('button',{key:a.id,className:'offer-search-item '+(sel&&sel.id===a.id?'on':''),onClick:function(){elegirArticulo(a);}},
-        E('span',null,a.desc),E('small',null,(a.cod||'')+' · Público $'+$(a.precio)+' · Costo $'+$(a.costo))
-      );}):E('div',{className:'empty',style:{padding:10}},'No hay coincidencias.')),
-      sel&&E('div',{className:'alert ok'},E('span',null,(editando?'Editando: ':'Seleccionado: ')+sel.desc+' · Código '+(sel.cod||'—')+' · Precio actual $'+$(sel.precio)+' · Costo $'+$(sel.costo||0))),
-      E('div',{className:'grid2'},
-        E('div',{className:'fg'},E('label',null,'Precio oferta relámpago $'),E('input',{className:'fi',type:'number',min:0,value:form.precioOferta,onChange:function(e){set('precioOferta',e.target.value);}})),
-        E('div',{className:'fg'},E('label',null,'Precio anterior opcional $'),E('input',{className:'fi',type:'number',min:0,value:form.precioAnterior,onChange:function(e){set('precioAnterior',e.target.value);}})),
-        E('div',{className:'fg'},E('label',null,'Desde'),E('input',{className:'fi',type:'date',value:form.fechaDesde,onChange:function(e){set('fechaDesde',e.target.value);}})),
-        E('div',{className:'fg'},E('label',null,'Hasta opcional'),E('input',{className:'fi',type:'date',value:form.fechaHasta,onChange:function(e){set('fechaHasta',e.target.value);}})),
-        E('div',{className:'fg'},E('label',null,'Stock / condición opcional'),E('input',{className:'fi',value:form.stockInfo,onChange:function(e){set('stockInfo',e.target.value);},placeholder:'Ej: hasta agotar stock, mínimo 2 bultos…'})),
-        E('div',{className:'fg'},E('label',null,'Orden en flyer'),E('input',{className:'fi',type:'number',value:form.ordenFlyer,onChange:function(e){set('ordenFlyer',e.target.value);}}))
-      ),
-      E('div',{className:'grid2'},
-        E('label',{className:'checkline'},E('input',{type:'checkbox',checked:form.mostrarPrecioAnterior!==false,onChange:function(e){set('mostrarPrecioAnterior',e.target.checked);}}),' Mostrar precio anterior'),
-        E('label',{className:'checkline'},E('input',{type:'checkbox',checked:form.mostrarVigencia!==false,onChange:function(e){set('mostrarVigencia',e.target.checked);}}),' Mostrar vigencia'),
-        E('label',{className:'checkline'},E('input',{type:'checkbox',checked:form.mostrarFlyer!==false,onChange:function(e){set('mostrarFlyer',e.target.checked);}}),' Incluir en flyer')
-      ),
-      E('div',{className:'fg'},E('label',null,'Foto de la oferta opcional'),E('input',{className:'fi',type:'file',accept:'image/*',onChange:onFoto}),form.fotoUrl&&E('div',{className:'photo-preview'},E('img',{src:form.fotoUrl,alt:'Foto oferta'}),E('button',{className:'btn sm',onClick:function(){set('fotoUrl','');}},'Quitar foto'))),
-      E('div',{className:'fg'},E('label',null,'Observación opcional'),E('textarea',{className:'fi',rows:2,value:form.observacion,onChange:function(e){set('observacion',e.target.value);},placeholder:'Ej: ideal para ofrecer a clientes con alta rotación…'})),
-      E('button',{className:'btn pri',onClick:guardar},editando?'💾 Guardar cambios de oferta':'💾 Guardar oferta relámpago')
-    ),
-    E('div',{className:'card'},
-      E('div',{className:'card-hd'},
-        E('div',{className:'card-title'},isAdminOrCo?'📋 Ofertas relámpago cargadas':'🔥 Ofertas relámpago disponibles para vender'),
-        E('button',{className:'btn',onClick:cargar},'🔄 Actualizar')
-      ),
-      !isAdminOrCo&&E('div',{className:'alert ok'},E('span',null,'Estas ofertas relámpago aplican automáticamente en el pedido si cargás el producto correspondiente.')),
-      E('div',{className:'offer-grid'},visibles.length?visibles.map(ofertaCard):E('div',{className:'empty'},isAdminOrCo?'Todavía no hay ofertas relámpago cargadas.':'No hay ofertas relámpago vigentes por ahora.'))
-    ),
-    E('div',{className:'card flyer-builder'},
-      E('div',{className:'card-hd'},
-        E('div',{className:'card-title'},'🧾 Catálogo / Flyer de Oferta Relámpago'),
-        E('div',{className:'brow'},E('button',{className:'btn',onClick:printFlyer},'🖨️ Imprimir'),E('button',{className:'btn ok',onClick:exportFlyerImg},'🖼️ Sacar imagen'))
-      ),
-      isAdminOrCo&&E('div',{className:'brow flyer-tools'},
-        E('button',{className:'btn '+(flyerMode==='catalogo'?'pri':''),onClick:function(){setFlyerMode('catalogo');}},'8 por página'),
-        E('button',{className:'btn '+(flyerMode==='seleccion'?'pri':''),onClick:function(){setFlyerMode('seleccion');}},'Solo elegidas'),
-        E('button',{className:'btn '+(flyerMode==='destacado'?'pri':''),onClick:function(){setFlyerMode('destacado');}},'Destacar 1')
-      ),
-      E('div',{className:'alert warn'},E('span',null,'Para flyer seleccionado o destacado, marcá las ofertas con el tilde "Usar en flyer seleccionado".')),
-      E('div',{className:'alert ok'},E('span',null,'En celular la vista previa se adapta para leerse mejor. Al exportar imagen o imprimir, siempre sale en formato A4.')),
-      E('div',{className:'flyer-preview-wrap',ref:flyerRef},flyerPreview())
-    )
-  );
-}
-
-/* ═══════════════════════════
-   OBJETIVOS PREVENTISTAS (Admin / CoAdmin)
-═══════════════════════════ */
-function ObjetivosPreventistas(props){
-  var user=props.user;
-  var isAdminOrCo=user.role==='admin'||user.role==='coadmin';
-  var _u=useState([]),usuarios=_u[0],setUsuarios=_u[1];
-  var _o=useState([]),objetivos=_o[0],setObjetivos=_o[1];
-  var _msg=useState(null),msg=_msg[0],setMsg=_msg[1];
-  var hoy=(new Date()).toISOString().slice(0,10);
-  var _f=useState({usuarioId:'',fechaDesde:hoy,fechaHasta:hoy,objetivoVisitas:20,objetivoPedidos:8,objetivoVentas:0,objetivoCobranza:0}),form=_f[0],setForm=_f[1];
-
-  if(!isAdminOrCo)return E('div',{className:'empty'},'Módulo disponible solo para Administrador o Co-Administrador.');
-
-  function flash(t,m){setMsg({t:t,m:m});setTimeout(function(){setMsg(null);},3500);}
-  function cargar(){
-    dbGet('usuarios').then(function(rows){
-      var us=(Array.isArray(rows)?rows:[]).map(dbToUser).filter(function(u){return u.role==='preventista'&&u.activo!==false;});
-      setUsuarios(us);
-      if(!form.usuarioId&&us[0])setForm(Object.assign({},form,{usuarioId:us[0].id}));
-    }).catch(function(){});
-    dbGet('objetivos_preventistas').then(function(rows){if(Array.isArray(rows))setObjetivos(rows.map(dbToObj));}).catch(function(){});
-  }
-  useEffect(function(){cargar();},[]);
-  function set(k,v){setForm(Object.assign({},form,{[k]:v}));}
-  function userName(id){var u=usuarios.find(function(x){return x.id===id;});return u?(u.nombre||u.username):id;}
-
-  function guardar(){
-    if(!form.usuarioId){flash('err','Seleccioná un preventista.');return;}
-    if(!form.fechaDesde||!form.fechaHasta){flash('err','Completá fecha desde y hasta.');return;}
-    if(form.fechaHasta<form.fechaDesde){flash('err','La fecha hasta no puede ser menor que desde.');return;}
-    var id='obj_'+form.usuarioId+'_'+form.fechaDesde+'_'+form.fechaHasta;
-    var row=objToDb(Object.assign({},form,{id:id,usuarioNombre:userName(form.usuarioId),activo:true}));
-    dbUpsert('objetivos_preventistas',row).then(function(){flash('ok','Objetivo guardado.');cargar();})
-      .catch(function(e){flash('err','No se pudo guardar: '+e.message);});
-  }
-  function desactivar(o){
-    if(!confirm('¿Desactivar objetivo de '+(o.usuarioNombre||userName(o.usuarioId))+'?'))return;
-    dbUpdate('objetivos_preventistas',o.id,{activo:false}).then(function(){flash('ok','Objetivo desactivado.');cargar();})
-      .catch(function(){flash('err','No se pudo desactivar.');});
-  }
-  var activos=objetivos.filter(function(o){return o.activo!==false;}).sort(function(a,b){return String(b.fechaDesde).localeCompare(String(a.fechaDesde));});
-
-  return E('div',null,
-    msg&&E(Alert,{t:msg.t,msg:msg.m,onClose:function(){setMsg(null);}}),
-    E('div',{className:'card'},
-      E('div',{className:'card-hd'},
-        E('div',{className:'card-title'},'🎯 Objetivos simples para preventistas'),
-        E('button',{className:'btn',onClick:cargar},'🔄 Actualizar')
-      ),
-      E('div',{className:'alert warn'},E('span',null,'Versión simple: cargá metas por período para visitas, pedidos, ventas y cobranza. El preventista las ve en su Dashboard.')),
-      E('div',{className:'grid2'},
-        E('div',{className:'fg'},E('label',null,'Preventista'),
-          E('select',{className:'fs',value:form.usuarioId,onChange:function(e){set('usuarioId',e.target.value);}},
-            E('option',{value:''},'Seleccionar preventista'),
-            usuarios.map(function(u){return E('option',{key:u.id,value:u.id},u.nombre||u.username);})
-          )
-        ),
-        E('div',{className:'fg'},E('label',null,'Objetivo de visitas'),E('input',{className:'fi',type:'number',min:0,value:form.objetivoVisitas,onChange:function(e){set('objetivoVisitas',e.target.value);}})),
-        E('div',{className:'fg'},E('label',null,'Desde'),E('input',{className:'fi',type:'date',value:form.fechaDesde,onChange:function(e){set('fechaDesde',e.target.value);}})),
-        E('div',{className:'fg'},E('label',null,'Hasta'),E('input',{className:'fi',type:'date',value:form.fechaHasta,onChange:function(e){set('fechaHasta',e.target.value);}})),
-        E('div',{className:'fg'},E('label',null,'Objetivo de pedidos'),E('input',{className:'fi',type:'number',min:0,value:form.objetivoPedidos,onChange:function(e){set('objetivoPedidos',e.target.value);}})),
-        E('div',{className:'fg'},E('label',null,'Objetivo de ventas $'),E('input',{className:'fi',type:'number',min:0,value:form.objetivoVentas,onChange:function(e){set('objetivoVentas',e.target.value);}})),
-        E('div',{className:'fg'},E('label',null,'Objetivo de cobranza $'),E('input',{className:'fi',type:'number',min:0,value:form.objetivoCobranza,onChange:function(e){set('objetivoCobranza',e.target.value);}}))
-      ),
-      E('button',{className:'btn pri',onClick:guardar},'💾 Guardar objetivo')
-    ),
-    E('div',{className:'card'},
-      E('div',{className:'card-hd'},E('div',{className:'card-title'},'📋 Objetivos activos')),
-      E('div',{className:'tw'},E('table',null,
-        E('thead',null,E('tr',null,E('th',null,'Preventista'),E('th',null,'Período'),E('th',null,'Visitas'),E('th',null,'Pedidos'),E('th',null,'Ventas'),E('th',null,'Cobranza'),E('th',null,'Acción'))),
-        E('tbody',null,activos.length?activos.map(function(o){return E('tr',{key:o.id},
-          E('td',null,o.usuarioNombre||userName(o.usuarioId)),
-          E('td',null,o.fechaDesde+' → '+o.fechaHasta),
-          E('td',null,o.objetivoVisitas),
-          E('td',null,o.objetivoPedidos),
-          E('td',null,'$'+$i(o.objetivoVentas)),
-          E('td',null,'$'+$i(o.objetivoCobranza)),
-          E('td',null,E('button',{className:'btn sm dan',onClick:function(){desactivar(o);}},'Desactivar'))
-        );}):E('tr',null,E('td',{colSpan:7,className:'empty'},'Todavía no hay objetivos cargados.')))
-      ))
-    )
-  );
-}
-
-/* ═══════════════════════════
-   AUDITORÍA DE RECORRIDOS (Admin / CoAdmin)
-═══════════════════════════ */
-function AuditoriaRecorridos(props){
-  var user=props.user;
-  var isAdminOrCo=user.role==='admin'||user.role==='coadmin';
-  var _u=useState([]),usuarios=_u[0],setUsuarios=_u[1];
-  var _p=useState([]),pedidos=_p[0],setPedidos=_p[1];
-  var _v=useState([]),visitas=_v[0],setVisitas=_v[1];
-  var _m=useState([]),movs=_m[0],setMovs=_m[1];
-  var _c=useState([]),clientes=_c[0],setClientes=_c[1];
-  var _gp=useState([]),gpsRemotos=_gp[0],setGpsRemotos=_gp[1];
-  var _ae=useState([]),auditEventos=_ae[0],setAuditEventos=_ae[1];
-  var _fd=useState((new Date()).toISOString().slice(0,10)),fecha=_fd[0],setFecha=_fd[1];
-  var _sel=useState('todos'),preventistaId=_sel[0],setPreventistaId=_sel[1];
-  var _msg=useState(null),msg=_msg[0],setMsg=_msg[1];
-
-  if(!isAdminOrCo)return E('div',{className:'empty'},'Módulo disponible solo para Administrador o Co-Administrador.');
-
-  function dateInputToAR(v){
-    if(!v)return todayStr();
-    var p=String(v).split('-');
-    if(p.length!==3)return v;
-    return parseInt(p[2],10)+'/'+parseInt(p[1],10)+'/'+p[0];
-  }
-  function dateInputToGpsKey(v){return dateInputToAR(v).replace(/\//g,'-');}
-  function fechaCoincideAudit(f,v){return String(f||'').indexOf(dateInputToAR(v))>=0;}
-  function esEntregadoAudit(p){return p.estado==='entregado'||p.estado==='finalizado';}
-  function esRechazadoAudit(p){return p.estado==='cancelado'||((p.devoluciones||[]).length>0);}
-  function preventistaNombre(id){
-    var u=usuarios.find(function(x){return x.id===id;});
-    return u?(u.nombre||u.username):'—';
-  }
-  function gpsKeyFor(id){return 'gps_'+id+'_'+dateInputToGpsKey(fecha);}
-  function gpsPointsFor(id){
-    var remote=gpsRemotos.filter(function(p){return String(p.usuario_id)===String(id)&&String(p.fecha_dia||'').slice(0,10)===fecha&&p.lat&&p.lng;})
-      .map(function(p){return {lat:parseFloat(p.lat),lng:parseFloat(p.lng),ts:parseInt(p.ts,10)||Date.parse(p.created_at||'')||0};})
-      .sort(function(a,b){return (a.ts||0)-(b.ts||0);});
-    if(remote.length)return remote;
-    return gl(gpsKeyFor(id),[]).filter(function(p){return p&&p.lat&&p.lng;});
-  }
-  function distanciaKm(points){
-    function rad(x){return x*Math.PI/180;}
-    var km=0;
-    for(var i=1;i<points.length;i++){
-      var a=points[i-1],b=points[i];
-      var R=6371;
-      var dLat=rad(b.lat-a.lat),dLon=rad(b.lng-a.lng);
-      var s=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)*Math.sin(dLon/2);
-      km+=2*R*Math.atan2(Math.sqrt(s),Math.sqrt(1-s));
-    }
-    return km;
-  }
-  function horaFromTs(ts){
-    if(!ts)return '—';
-    try{return new Date(ts).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});}catch(e){return '—';}
-  }
-  function clienteName(v){return v.cliente_nombre||v.clienteNombre||'Cliente';}
-
-  function cargar(){
-    dbGet('usuarios').then(function(rows){if(Array.isArray(rows))setUsuarios(rows.map(dbToUser).filter(function(u){return u.role==='preventista';}));}).catch(function(){});
-    dbGet('pedidos').then(function(rows){if(Array.isArray(rows))setPedidos(rows.map(dbToPed));}).catch(function(){});
-    dbGet('visitas').then(function(rows){if(Array.isArray(rows))setVisitas(rows);}).catch(function(){});
-    dbGet('movimientos_cc').then(function(rows){if(Array.isArray(rows))setMovs(rows);}).catch(function(){});
-    dbGet('movimientos_cc').then(function(rows){if(Array.isArray(rows))setMovs(rows);}).catch(function(){});
-    dbGetClientesLight().then(function(rows){if(Array.isArray(rows))setClientes(rows.map(dbToCli));}).catch(function(){});
-    dbGet('gps_puntos').then(function(rows){if(Array.isArray(rows))setGpsRemotos(rows);}).catch(function(){});
-    dbGet('auditoria_eventos').then(function(rows){if(Array.isArray(rows))setAuditEventos(rows.concat(auditLocalEventsForDate(fecha)));}).catch(function(){setAuditEventos(auditLocalEventsForDate(fecha));});
-  }
-  useEffect(function(){cargar();var iv=setInterval(cargar,15000);return function(){clearInterval(iv);};},[]);
-
-  var preventistas=usuarios.filter(function(u){return u.activo!==false;});
-  var idsSeleccionados=preventistaId==='todos'?preventistas.map(function(u){return u.id;}):[preventistaId];
-  var pedidosDia=pedidos.filter(function(p){return fechaCoincideAudit(p.fecha,fecha)||fechaCoincideAudit(p.fechaEntregado,fecha)||fechaCoincideAudit(p.fechaPreparado,fecha);})
-    .filter(function(p){return preventistaId==='todos'||p.preventistaId===preventistaId;});
-  var visitasDia=visitas.filter(function(v){return fechaCoincideAudit(v.fecha,fecha);})
-    .filter(function(v){return preventistaId==='todos'||v.preventista_id===preventistaId;});
-  var movsDia=movs.filter(function(m){return fechaCoincideAudit(m.fecha,fecha);})
-    .filter(function(m){return preventistaId==='todos'||m.usuario_id===preventistaId;});
-  var eventosDia=auditEventos.filter(function(e){return String(e.fecha_dia||'').slice(0,10)===fecha;})
-    .filter(function(e){return preventistaId==='todos'||String(e.usuario_id)===String(preventistaId);});
-  var eventosPedido=eventosDia.filter(function(e){return e.tipo==='pedido';}).length;
-  var eventosVisita=eventosDia.filter(function(e){return e.tipo==='visita';}).length;
-  var eventosCobro=eventosDia.filter(function(e){return e.tipo==='cobro';}).length;
-  var eventosSinGPS=eventosDia.filter(function(e){return e.gps_estado!=='ok';}).length;
-
-  var clientesUnicos={};
-  visitasDia.forEach(function(v){if(v.cliente_id)clientesUnicos[v.cliente_id]=true;});
-  var cobros=movsDia.filter(function(m){return m.tipo==='credito';});
-  var totalCobrado=cobros.reduce(function(s,m){return s+(parseFloat(m.monto)||0);},0);
-  var negativas=visitasDia.filter(function(v){return String(v.observaciones||'').indexOf('SE NEGÓ A PAGAR')>=0;});
-  var pedidosCreados=pedidosDia.filter(function(p){return fechaCoincideAudit(p.fecha,fecha);}).length;
-  var pedidosEntregados=pedidosDia.filter(esEntregadoAudit).length;
-  var pedidosRechazados=pedidosDia.filter(esRechazadoAudit).length;
-
-  function resumenPreventista(u){
-    var vs=visitas.filter(function(v){return v.preventista_id===u.id&&fechaCoincideAudit(v.fecha,fecha);});
-    var ps=pedidos.filter(function(p){return p.preventistaId===u.id&&(fechaCoincideAudit(p.fecha,fecha)||fechaCoincideAudit(p.fechaEntregado,fecha)||fechaCoincideAudit(p.fechaPreparado,fecha));});
-    var ms=movs.filter(function(m){return m.usuario_id===u.id&&fechaCoincideAudit(m.fecha,fecha);});
-    var gps=gpsPointsFor(u.id);
-    var cu={};vs.forEach(function(v){if(v.cliente_id)cu[v.cliente_id]=true;});
-    return {u:u,visitas:vs,pedidos:ps,cobros:ms.filter(function(m){return m.tipo==='credito';}),gps:gps,clientes:Object.keys(cu).length};
-  }
-  var resumenes=preventistas.map(resumenPreventista);
-
-  var selectedGps=[];
-  idsSeleccionados.forEach(function(id){selectedGps=selectedGps.concat(gpsPointsFor(id));});
-  var tracks=[];
-  if(preventistaId!=='todos'){
-    var pts=gpsPointsFor(preventistaId);
-    if(pts.length>1)tracks.push({points:pts,color:'#E31E24'});
-  }else{
-    resumenes.forEach(function(r,i){if(r.gps.length>1)tracks.push({points:r.gps,color:['#E31E24','#1F4788','#1a9e5c','#6d3fd6','#e07b10'][i%5]});});
-  }
-  var markers=visitasDia.filter(function(v){return v.lat&&v.lng;}).map(function(v){
-    var obs=String(v.observaciones||'');
-    var color=obs.indexOf('SE NEGÓ A PAGAR')>=0?'#E31E24':(obs.indexOf('Pago recibido')>=0?'#1a9e5c':'#1F4788');
-    return {lat:v.lat,lng:v.lng,color:color,popup:'<strong>'+clienteName(v)+'</strong><br>'+((v.preventista_nombre)||preventistaNombre(v.preventista_id))+'<br>'+String(v.fecha||'')+'<br>'+obs};
-  });
-
-  function visitasSinPedido(){
-    var pedidosClientes={};
-    pedidosDia.forEach(function(p){if(p.cliente&&p.cliente.id)pedidosClientes[p.cliente.id]=true;});
-    return visitasDia.filter(function(v){return v.cliente_id&&!pedidosClientes[v.cliente_id];});
-  }
-  var sinPedido=visitasSinPedido();
-
-  function exportarAuditoria(){
-    var rows=visitasDia.map(function(v){
-      return {Fecha:v.fecha,Preventista:v.preventista_nombre||preventistaNombre(v.preventista_id),Cliente:clienteName(v),GPS:(v.lat&&v.lng)?(v.lat+','+v.lng):'',Observaciones:v.observaciones||''};
-    });
-    var rowsCobros=cobros.map(function(m){return {Fecha:m.fecha,Preventista:m.usuario_nombre||preventistaNombre(m.usuario_id),Cliente:m.cliente_nombre,Monto:m.monto,Forma:m.forma_pago||'',Referencia:m.referencia||'',Observaciones:m.observaciones||''};});
-    var rowsEventos=eventosDia.map(function(e){return {Fecha:e.fecha,Hora:e.hora,Preventista:e.usuario_nombre,Tipo:e.tipo,Accion:e.accion,Cliente:e.cliente_nombre||'',Pedido:e.pedido_id||'',Monto:e.monto||'',GPS:e.lat&&e.lng?(e.lat+','+e.lng):e.gps_estado,Estado:e.sync_estado||'',Observaciones:e.observaciones||''};});
-    exportXLSX([{name:'Eventos balance',rows:rowsEventos},{name:'Visitas',rows:rows},{name:'Cobros',rows:rowsCobros}], 'Auditoria_Recorridos_'+fecha+'.xlsx');
-  }
-
-  return E('div',null,
-    msg&&E(Alert,{t:msg.t,msg:msg.m,onClose:function(){setMsg(null);}}),
-    E('div',{className:'card'},
-      E('div',{className:'card-hd'},
-        E('div',{className:'card-title'},'🧭 Auditoría de recorridos y cobranzas'),
-        E('div',{className:'brow'},
-          E('input',{className:'fi sm',type:'date',value:fecha,onChange:function(e){setFecha(e.target.value);},style:{width:155}}),
-          E('select',{className:'fs',value:preventistaId,onChange:function(e){setPreventistaId(e.target.value);},style:{width:230}},
-            E('option',{value:'todos'},'Todos los preventistas'),
-            preventistas.map(function(u){return E('option',{key:u.id,value:u.id},u.nombre||u.username);})
-          ),
-          E('button',{className:'btn',onClick:cargar},'🔄 Actualizar'),
-          E('button',{className:'btn ok',onClick:exportarAuditoria},'📤 Exportar')
-        )
-      ),
-      E('div',{className:'alert warn',style:{marginBottom:12}},
-        E('span',null,'Las visitas, cobros, negativas y puntos GPS quedan guardados para control del administrador. Si no ves la ruta, verificá que el preventista haya iniciado el GPS y que esté ejecutado el SQL V35 de gps_puntos.')
-      ),
-      E('div',{className:'kpi-row'},
-        E('div',{className:'kpi teal'},E('div',{className:'kpi-label'},'Clientes recorridos'),E('div',{className:'kpi-val'},Object.keys(clientesUnicos).length||visitasDia.length)),
-        E('div',{className:'kpi'},E('div',{className:'kpi-label'},'Visitas registradas'),E('div',{className:'kpi-val'},visitasDia.length)),
-        E('div',{className:'kpi green'},E('div',{className:'kpi-label'},'Cobros recibidos'),E('div',{className:'kpi-val'},'$'+$i(totalCobrado))),
-        E('div',{className:'kpi red'},E('div',{className:'kpi-label'},'Negativas de pago'),E('div',{className:'kpi-val'},negativas.length)),
-        E('div',{className:'kpi orange'},E('div',{className:'kpi-label'},'Pedidos creados'),E('div',{className:'kpi-val'},pedidosCreados)),
-        E('div',{className:'kpi purple'},E('div',{className:'kpi-label'},'Entregados / rechazados'),E('div',{className:'kpi-val'},pedidosEntregados+' / '+pedidosRechazados))
-      ),
-      E('div',{className:'kpi-row'},
-        E('div',{className:'kpi teal'},E('div',{className:'kpi-label'},'Eventos balance'),E('div',{className:'kpi-val'},eventosDia.length)),
-        E('div',{className:'kpi orange'},E('div',{className:'kpi-label'},'Pedidos / visitas / cobros'),E('div',{className:'kpi-val'},eventosPedido+' / '+eventosVisita+' / '+eventosCobro)),
-        E('div',{className:'kpi red'},E('div',{className:'kpi-label'},'Eventos sin GPS'),E('div',{className:'kpi-val'},eventosSinGPS))
-      )
-    ),
-
-    E('div',{className:'grid2'},
-      E('div',{className:'card'},
-        E('div',{className:'card-hd'},E('div',{className:'card-title'},'🗺️ Mapa de recorrido, visitas y cobros')),
-        (tracks.length||markers.length)?E(LeafletMap,{height:'420px',tracks:tracks,markers:markers,noFit:false}):E('div',{className:'empty'},'No hay puntos GPS ni visitas con ubicación para la fecha seleccionada.')
-      ),
-      E('div',{className:'card'},
-        E('div',{className:'card-hd'},E('div',{className:'card-title'},'📌 Resumen por preventista')),
-        E('div',{className:'tw'},E('table',null,
-          E('thead',null,E('tr',null,E('th',null,'Preventista'),E('th',null,'GPS'),E('th',null,'Inicio'),E('th',null,'Fin'),E('th',null,'Km aprox.'),E('th',null,'Visitas'),E('th',null,'Cobros'))),
-          E('tbody',null,resumenes.length?resumenes.map(function(r){
-            var km=distanciaKm(r.gps);
-            var cob=r.cobros.reduce(function(s,m){return s+(parseFloat(m.monto)||0);},0);
-            return E('tr',{key:r.u.id},
-              E('td',null,E('strong',null,r.u.nombre||r.u.username)),
-              E('td',null,r.gps.length+' pts'),
-              E('td',null,r.gps.length?horaFromTs(r.gps[0].ts):'—'),
-              E('td',null,r.gps.length?horaFromTs(r.gps[r.gps.length-1].ts):'—'),
-              E('td',null,km?km.toFixed(1):'—'),
-              E('td',null,r.visitas.length),
-              E('td',null,'$'+$i(cob))
-            );
-          }):E('tr',null,E('td',{colSpan:7,className:'empty'},'Sin preventistas cargados.')))
-        ))
-      )
-    ),
-
-    E('div',{className:'card'},
-      E('div',{className:'card-hd'},E('div',{className:'card-title'},'🏪 Visitas, cobros y motivos')),
-      E('div',{className:'tw'},E('table',null,
-        E('thead',null,E('tr',null,E('th',null,'Hora'),E('th',null,'Preventista'),E('th',null,'Cliente'),E('th',null,'Tipo'),E('th',null,'Detalle'),E('th',null,'GPS'))),
-        E('tbody',null,visitasDia.length?visitasDia.sort(function(a,b){return String(a.fecha||'').localeCompare(String(b.fecha||''));}).map(function(v){
-          var obs=String(v.observaciones||'');
-          var tipo=obs.indexOf('SE NEGÓ A PAGAR')>=0?'Negativa':(obs.indexOf('Pago recibido')>=0?'Cobro':'Visita');
-          return E('tr',{key:v.id},
-            E('td',null,horaSolo(v.fecha)),
-            E('td',null,v.preventista_nombre||preventistaNombre(v.preventista_id)),
-            E('td',null,clienteName(v)),
-            E('td',null,E('span',{className:'badge '+(tipo==='Negativa'?'off':'on')},tipo)),
-            E('td',null,obs||'—'),
-            E('td',null,(v.lat&&v.lng)?E('a',{href:'https://www.google.com/maps?q='+v.lat+','+v.lng,target:'_blank'},'Abrir mapa'):'—')
-          );
-        }):E('tr',null,E('td',{colSpan:6,className:'empty'},'No hay visitas registradas.')))
-      ))
-    ),
-
-    E('div',{className:'card'},
-      E('div',{className:'card-hd'},E('div',{className:'card-title'},'🧾 Balance de actividad offline/online')),
-      E('div',{className:'alert ok'},E('span',null,'Estos eventos se guardan en el teléfono aunque no haya internet y se sincronizan cuando vuelve la conexión. El GPS acompaña, pero no bloquea el registro.')),
-      E('div',{className:'tw'},E('table',null,
-        E('thead',null,E('tr',null,E('th',null,'Hora'),E('th',null,'Preventista'),E('th',null,'Tipo'),E('th',null,'Acción'),E('th',null,'Cliente'),E('th',null,'GPS'),E('th',null,'Estado'))),
-        E('tbody',null,eventosDia.length?eventosDia.sort(function(a,b){return (a.ts||0)-(b.ts||0);}).map(function(e){return E('tr',{key:e.id},
-          E('td',null,e.hora||horaSolo(e.fecha)),
-          E('td',null,e.usuario_nombre||preventistaNombre(e.usuario_id)),
-          E('td',null,E('span',{className:'badge on'},e.tipo||'evento')),
-          E('td',null,e.accion||'—'),
-          E('td',null,e.cliente_nombre||'—'),
-          E('td',null,(e.lat&&e.lng)?E('a',{href:'https://www.google.com/maps?q='+e.lat+','+e.lng,target:'_blank'},'Abrir mapa'):(e.gps_estado||'sin_gps')),
-          E('td',null,e.sync_estado||'sincronizado')
-        );}):E('tr',null,E('td',{colSpan:7,className:'empty'},'Todavía no hay eventos de balance para la fecha seleccionada.')))
-      ))
-    ),
-
-    E('div',{className:'grid2'},
-      E('div',{className:'card'},
-        E('div',{className:'card-hd'},E('div',{className:'card-title'},'💳 Cobros registrados')),
-        E('div',{className:'tw'},E('table',null,
-          E('thead',null,E('tr',null,E('th',null,'Hora'),E('th',null,'Preventista'),E('th',null,'Cliente'),E('th',null,'Monto'),E('th',null,'Forma'))),
-          E('tbody',null,cobros.length?cobros.map(function(m){return E('tr',{key:m.id},
-            E('td',null,horaSolo(m.fecha)),
-            E('td',null,m.usuario_nombre||preventistaNombre(m.usuario_id)),
-            E('td',null,m.cliente_nombre||'—'),
-            E('td',null,E('strong',null,'$'+$(m.monto))),
-            E('td',null,m.forma_pago||'—')
-          );}):E('tr',null,E('td',{colSpan:5,className:'empty'},'Sin cobros registrados.')))
-        ))
-      ),
-      E('div',{className:'card'},
-        E('div',{className:'card-hd'},E('div',{className:'card-title'},'⚠️ Visitas sin pedido / sin compra')),
-        E('div',{className:'tw'},E('table',null,
-          E('thead',null,E('tr',null,E('th',null,'Cliente'),E('th',null,'Preventista'),E('th',null,'Hora'),E('th',null,'Observación'))),
-          E('tbody',null,sinPedido.length?sinPedido.map(function(v){return E('tr',{key:v.id},
-            E('td',null,clienteName(v)),
-            E('td',null,v.preventista_nombre||preventistaNombre(v.preventista_id)),
-            E('td',null,horaSolo(v.fecha)),
-            E('td',null,v.observaciones||'—')
-          );}):E('tr',null,E('td',{colSpan:4,className:'empty'},'No hay visitas sin pedido para esta fecha.')))
-        ))
-      )
-    )
-  );
-}
-
 var MOD_TITLES={
   'dashboard':'Dashboard','nuevo-pedido':'Nuevo Pedido','mis-pedidos':'Mis Pedidos',
-  'mapa-gps':'Mi Recorrido GPS','cola-prep':'Cola de Preparación',
+  'mapa-gps':'Mi Recorrido GPS','jornada-caja':'Jornada / Caja','cola-prep':'Cola de Preparación',
   'todos-pedidos':'Todos los Pedidos','mapa-admin':'Mapa de Preventistas','auditoria':'Auditoría Recorridos','objetivos':'Objetivos Preventistas','ofertas':'Ofertas Relámpago',
   'clientes':'Clientes','articulos':'Artículos','cuentas-corrientes':'Cuentas Corrientes',
   'estadisticas':'Estadísticas','comisiones':'Comisiones','usuarios':'Usuarios','configuracion':'Configuración'
@@ -5346,6 +5278,7 @@ function App(){
     if(mod==='dashboard')return E(Dashboard,{user:user});
     if(mod==='nuevo-pedido'&&(isPrev||isAdminOrCo))return E(NuevoPedido,{user:user});
     if(mod==='mis-pedidos'&&isPrev)return E(MisPedidos,{user:user});
+    if(mod==='jornada-caja'&&(isPrev||isAdminOrCo))return E(JornadaCaja,{user:user});
     if(mod==='mapa-gps'&&isPrev)return E(MapaGPS,{user:user});
     if(mod==='cola-prep'&&(isAdminOrCo||isPrep))return E(ColaPreparacion,{user:user});
     if(mod==='todos-pedidos'&&(isAdminOrCo||isPrep))return E(TodosPedidos,{user:user,setMod:goMod});
