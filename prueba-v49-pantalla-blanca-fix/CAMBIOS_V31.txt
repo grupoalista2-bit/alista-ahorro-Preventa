@@ -1,0 +1,5 @@
+V31 - Vista en pantalla para unidades vendidas
+- En Todos los Pedidos se agrega el botón "👁️ Ver unidades vendidas".
+- Permite revisar el resumen en pantalla antes de exportar Excel.
+- Mantiene el botón "📦 Excel unidades vendidas" para Zona de Precios.
+- No requiere SQL nuevo.
