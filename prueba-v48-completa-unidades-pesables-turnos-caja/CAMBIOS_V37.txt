@@ -1,0 +1,1 @@
+V37: GPS continuo. Agrega lectura de respaldo cada 15 segundos, reacople al volver a la app y aviso para mantener pantalla activa. No requiere SQL nuevo si ya se ejecutó V35.
