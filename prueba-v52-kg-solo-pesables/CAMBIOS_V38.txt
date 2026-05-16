@@ -1,0 +1,1 @@
+V38: permite editar ofertas relámpago, modificar foto/precio/orden de flyer y revisar ofertas al importar lista nueva manteniendo margen sobre costo.

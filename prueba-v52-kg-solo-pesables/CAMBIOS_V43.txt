@@ -1,0 +1,7 @@
+V43 - Balance de recorrido preventista offline/online
+- Registra eventos de trabajo aunque no haya internet.
+- Cuando vuelve conexión, sincroniza eventos pendientes con Supabase.
+- GPS acompaña el registro, pero no bloquea pedido, visita ni cobro.
+- Admin ve nuevo bloque: Balance de actividad offline/online.
+- Se registran inicio de sesión, activación GPS, app reactivada, pedido cargado, cobro y visita/negativa.
+- SQL nuevo: supabase/sql/alista_ahorro_v43_balance_offline_online.sql
