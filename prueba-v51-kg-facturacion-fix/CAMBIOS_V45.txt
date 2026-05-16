@@ -1,0 +1,1 @@
+V45: Corrige el recalculo final de preparacion. Cuando el preparador descuenta unidades, agrega o reemplaza articulos, el total final del pedido se recalcula y queda guardado en sub, total e items_finales. Tambien muestra total original, total preparado y diferencia.

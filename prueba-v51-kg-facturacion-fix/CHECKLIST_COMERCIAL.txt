@@ -1,0 +1,11 @@
+CHECKLIST antes de comercializar
+
+[ ] Login con Supabase Auth probado en todos los roles.
+[ ] RLS activo y probado con admin, preventista y preparador.
+[ ] Contraseñas guardadas fuera del código.
+[ ] Artículos importados desde Excel correcto.
+[ ] Fotos de clientes movidas a Supabase Storage privado si se van a usar en producción.
+[ ] Backups configurados.
+[ ] Políticas de privacidad y términos preparados.
+[ ] Dominio propio y HTTPS configurados.
+[ ] Edge Function para crear usuarios administrativamente.
