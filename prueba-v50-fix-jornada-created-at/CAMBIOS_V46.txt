@@ -1,0 +1,10 @@
+V46 - Unidades vendidas y productos pesables
+
+- Integra correcciones V44 de comisiones, estadísticas y auditoría por fechas.
+- Integra corrección V45 de total final preparado.
+- Corrige unidades vendidas para computar pedidos facturados/listos/en tránsito/entregados/finalizados.
+- Descuenta devoluciones del reporte de unidades vendidas.
+- Agrega soporte para productos pesables por kg.
+- Importa columna PESABLE desde Excel con valores SI/SÍ/TRUE/1/X/KG.
+- En artículos permite marcar producto pesable manualmente.
+- En pedidos, preparación y devoluciones permite cantidades decimales para productos pesables.

@@ -1,0 +1,1 @@
+V36: corrige pantalla en blanco en Mapa Preventistas cuando hay puntos GPS remotos sincronizados. Mantiene mejoras mobile/flyer V35.
