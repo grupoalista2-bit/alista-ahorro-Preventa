@@ -1,0 +1,12 @@
+V48 - Paquete completo combinado
+
+Incluye en una sola versión:
+- V44: comisiones, estadísticas y auditoría de recorridos con filtro por fechas.
+- V45: preparación con total final corregido cuando se descuentan unidades.
+- V46: unidades vendidas corregidas y productos pesables/por kg desde Excel.
+- V47: inicio y cierre de jornada/caja por turno para preventistas.
+
+Importante:
+- Esta versión está pensada para subir directamente como prueba completa.
+- Ejecutar SQL pendientes en Supabase antes de usar en producción.
+- No borra datos.

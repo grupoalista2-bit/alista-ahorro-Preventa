@@ -1,0 +1,6 @@
+V44 — Comisiones, estadísticas y auditoría
+
+- Estadísticas ahora computa pedidos entregados/finalizados, no solo finalizados.
+- Comisiones se recalculan desde Supabase y computan entregados/finalizados.
+- Auditoría de recorridos permite filtrar desde/hasta entre fechas.
+- Se agregan índices SQL para acelerar reportes.
