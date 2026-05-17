@@ -1,4 +1,4 @@
-/* ALISTA AHORRO v29 oferta-relampago-flyer-a4
+/* ALISTA AHORRO v55 ofertas editar fix
    Código de aplicación separado del HTML.
    No poner service_role keys ni contraseñas en este archivo. */
 'use strict';
@@ -529,6 +529,308 @@ function descargarDataUrl(dataUrl,nombre){
 }
 
 function pctCumplido(actual,obj){obj=parseFloat(obj)||0;actual=parseFloat(actual)||0;return obj>0?Math.min(100,Math.round((actual/obj)*100)):0;}
+
+/* ═══════════════════════════
+   V53 — Ofertas Relámpago Fix
+   Reincorpora el componente OfertasPreventistas que faltaba en la combinación V52.
+   Si algo falla en Supabase, la pantalla no queda en blanco: muestra aviso y permite reintentar.
+═══════════════════════════ */
+/* V55 — Ofertas Relámpago: vista anterior + botón editar oferta */
+function OfertasPreventistas(props){
+  var user=props.user;
+  var isAdminOrCo=user.role==='admin'||user.role==='coadmin';
+  var isPrev=user.role==='preventista';
+  var _of=useState([]),ofertas=_of[0],setOfertas=_of[1];
+  var _arts=useState([]),arts=_arts[0],setArts=_arts[1];
+  var _q=useState(''),q=_q[0],setQ=_q[1];
+  var _sel=useState(null),sel=_sel[0],setSel=_sel[1];
+  var _edit=useState(null),editId=_edit[0],setEditId=_edit[1];
+  var _msg=useState(null),msg=_msg[0],setMsg=_msg[1];
+  var _ids=useState([]),selectedIds=_ids[0],setSelectedIds=_ids[1];
+  var _mode=useState('catalogo'),flyerMode=_mode[0],setFlyerMode=_mode[1];
+  var flyerRef=useRef(null);
+  var hoy=(new Date()).toISOString().slice(0,10);
+  var _f=useState({precioOferta:'',precioAnterior:'',mostrarPrecioAnterior:true,fechaDesde:hoy,fechaHasta:'',mostrarVigencia:true,stockInfo:'',observacion:'',fotoUrl:'',mostrarFlyer:true,ordenFlyer:0}),form=_f[0],setForm=_f[1];
+
+  if(!(isAdminOrCo||isPrev))return E('div',{className:'empty'},'Módulo no disponible para tu rol.');
+
+  function flash(t,m){setMsg({t:t,m:m});setTimeout(function(){setMsg(null);},4500);}
+  function set(k,v){setForm(Object.assign({},form,{[k]:v}));}
+  function cargar(){
+    dbGet('ofertas_preventistas').then(function(rows){
+      setOfertas((Array.isArray(rows)?rows:[]).map(dbToOferta));
+    }).catch(function(e){flash('err','No se pudieron cargar ofertas relámpago. Ejecutá el SQL V29 de ofertas/flyer si todavía no lo hiciste.');});
+    if(isAdminOrCo){
+      dbGet('articulos').then(function(rows){
+        setArts((Array.isArray(rows)?rows:[]).map(dbToArt).filter(function(a){return a.estado!=='inactivo';}));
+      }).catch(function(){});
+    }
+  }
+  useEffect(function(){cargar();},[]);
+
+  var buscados=arts.map(function(a){return {a:a,s:artScore(a,q)};})
+    .filter(function(x){return !q||!q.trim()||x.s>0;})
+    .sort(function(x,y){return (y.s-x.s)||String(x.a.desc||'').localeCompare(String(y.a.desc||''),'es');})
+    .slice(0,12).map(function(x){return x.a;});
+
+  function elegirArticulo(a){
+    setSel(a);
+    if(!editId){
+      setForm(Object.assign({},form,{precioOferta:a.precio||0,precioAnterior:a.precio||0}));
+    }
+  }
+  function editarOferta(o){
+    if(!isAdminOrCo)return;
+    var art=(arts||[]).find(function(a){return (o.articuloId&&String(a.id)===String(o.articuloId))||(o.cod&&String(a.cod)===String(o.cod))||(o.codArt&&String(a.codArt)===String(o.codArt));});
+    if(!art){art={id:o.articuloId||o.id,cod:o.cod||'',codArt:o.codArt||'',desc:o.descripcion||'',precio:o.precioRegular||o.precioOferta||0,costo:o.costo||0,estado:'activo'};}
+    setEditId(o.id);
+    setSel(art);
+    setQ(o.descripcion||o.cod||'');
+    setForm({
+      precioOferta:o.precioOferta||'',
+      precioAnterior:o.precioRegular||'',
+      mostrarPrecioAnterior:o.mostrarPrecioAnterior!==false,
+      fechaDesde:o.fechaDesde||hoy,
+      fechaHasta:o.fechaHasta||'',
+      mostrarVigencia:o.mostrarVigencia!==false,
+      stockInfo:o.stockInfo||'',
+      observacion:o.observacion||'',
+      fotoUrl:o.fotoUrl||'',
+      mostrarFlyer:o.mostrarFlyer!==false,
+      ordenFlyer:o.ordenFlyer||0
+    });
+    flash('ok','Oferta cargada para editar. Modificá los datos y tocá Actualizar oferta.');
+    setTimeout(function(){window.scrollTo({top:0,behavior:'smooth'});},80);
+  }
+  function cancelarEdicion(){
+    setEditId(null);setSel(null);setQ('');
+    setForm({precioOferta:'',precioAnterior:'',mostrarPrecioAnterior:true,fechaDesde:hoy,fechaHasta:'',mostrarVigencia:true,stockInfo:'',observacion:'',fotoUrl:'',mostrarFlyer:true,ordenFlyer:0});
+  }
+  function onFoto(e){
+    var file=e.target.files&&e.target.files[0];
+    if(!file)return;
+    fileToCompressedDataUrl(file,900,0.78).then(function(data){set('fotoUrl',data);})
+      .catch(function(err){flash('err',err.message||'No se pudo cargar la foto.');});
+  }
+  function guardar(){
+    if(!isAdminOrCo){flash('err','Solo Admin o Co-Admin puede crear ofertas relámpago.');return;}
+    if(!sel){flash('err','Elegí un artículo del catálogo.');return;}
+    if(!form.precioOferta||parseFloat(form.precioOferta)<=0){flash('err','Cargá un precio de oferta relámpago válido.');return;}
+    if((parseFloat(form.precioOferta)||0)<(parseFloat(sel.costo)||0)){flash('err','El precio de oferta no puede quedar por debajo del precio de costo.');return;}
+    if(!form.fechaDesde){flash('err','Completá la fecha desde.');return;}
+    if(form.fechaHasta&&form.fechaHasta<form.fechaDesde){flash('err','La fecha hasta no puede ser menor que desde.');return;}
+    var row=ofertaToDb({
+      id:editId||('of_'+sel.id),
+      articuloId:sel.id,
+      cod:sel.cod,
+      codArt:sel.codArt,
+      descripcion:sel.desc,
+      precioRegular:(form.mostrarPrecioAnterior?parseFloat(form.precioAnterior||sel.precio||0):(sel.precio||0)),
+      precioOferta:form.precioOferta,
+      costo:sel.costo||0,
+      fechaDesde:form.fechaDesde,
+      fechaHasta:form.fechaHasta||null,
+      stockInfo:form.stockInfo,
+      observacion:form.observacion,
+      fotoUrl:form.fotoUrl||'',
+      mostrarFlyer:form.mostrarFlyer!==false,
+      mostrarPrecioAnterior:form.mostrarPrecioAnterior!==false,
+      mostrarVigencia:form.mostrarVigencia!==false,
+      ordenFlyer:form.ordenFlyer||0,
+      activo:true,
+      createdBy:user.id
+    });
+    dbUpsert('ofertas_preventistas',row).then(function(){
+      flash('ok',editId?'Oferta relámpago actualizada.':'Oferta relámpago guardada. El precio se aplicará automáticamente al cargar el pedido.');
+      setEditId(null);
+      setSel(null);setQ('');
+      setForm({precioOferta:'',precioAnterior:'',mostrarPrecioAnterior:true,fechaDesde:hoy,fechaHasta:'',mostrarVigencia:true,stockInfo:'',observacion:'',fotoUrl:'',mostrarFlyer:true,ordenFlyer:0});
+      cargar();
+    }).catch(function(e){flash('err','No se pudo guardar: '+e.message);});
+  }
+  function cambiarEstado(o,activo){
+    dbUpdate('ofertas_preventistas',o.id,{activo:activo}).then(function(){flash('ok',activo?'Oferta relámpago reactivada.':'Oferta relámpago desactivada.');cargar();})
+      .catch(function(){flash('err','No se pudo actualizar la oferta relámpago.');});
+  }
+  function borrar(o){
+    if(!confirm('¿Eliminar definitivamente la oferta relámpago de '+o.descripcion+'?'))return;
+    dbDelete('ofertas_preventistas',o.id).then(function(){flash('ok','Oferta relámpago eliminada.');cargar();})
+      .catch(function(){flash('err','No se pudo eliminar.');});
+  }
+  function toggleSelect(id){
+    setSelectedIds(selectedIds.indexOf(id)>=0?selectedIds.filter(function(x){return x!==id;}):selectedIds.concat([id]));
+  }
+
+  var visibles=isAdminOrCo?ofertas:ofertas.filter(function(o){return ofertaVigente(o,hoy);});
+  visibles=visibles.slice().sort(function(a,b){
+    var av=ofertaVigente(a,hoy)?0:1,bv=ofertaVigente(b,hoy)?0:1;
+    return (av-bv)||((a.ordenFlyer||0)-(b.ordenFlyer||0))||String(a.descripcion||'').localeCompare(String(b.descripcion||''),'es');
+  });
+  var vigentes=visibles.filter(function(o){return ofertaVigente(o,hoy)&&o.mostrarFlyer!==false;});
+  var flyerOfertas=vigentes;
+  if(flyerMode==='seleccion')flyerOfertas=vigentes.filter(function(o){return selectedIds.indexOf(o.id)>=0;});
+  if(flyerMode==='destacado')flyerOfertas=vigentes.filter(function(o){return selectedIds.indexOf(o.id)>=0;}).slice(0,1);
+  if(flyerMode==='destacado'&&flyerOfertas.length===0&&vigentes[0])flyerOfertas=[vigentes[0]];
+
+  function chunks(arr,n){var out=[];for(var i=0;i<arr.length;i+=n)out.push(arr.slice(i,i+n));return out;}
+  function printFlyer(){
+    document.body.classList.add('print-flyer-mode');
+    setTimeout(function(){window.print();setTimeout(function(){document.body.classList.remove('print-flyer-mode');},400);},80);
+  }
+  function exportFlyerImg(){
+    if(!window.html2canvas){flash('err','No se pudo cargar html2canvas para exportar imagen.');return;}
+    if(!flyerRef.current){flash('err','No hay flyer para exportar.');return;}
+    var pages=Array.prototype.slice.call(flyerRef.current.querySelectorAll('.flyer-a4'));
+    if(!pages.length){flash('err','No hay páginas A4 para exportar.');return;}
+    var host=document.createElement('div');
+    host.className='flyer-export-host';
+    document.body.appendChild(host);
+    var clones=pages.map(function(page){
+      var clone=page.cloneNode(true);
+      host.appendChild(clone);
+      return clone;
+    });
+    flash('ok','Generando imagen'+(pages.length>1?'es por hoja A4…':'…'));
+    function cleanup(){if(host&&host.parentNode)host.parentNode.removeChild(host);}
+    function renderPage(i){
+      var page=clones[i];
+      return window.html2canvas(page,{scale:3,backgroundColor:'#ffffff',useCORS:true,logging:false,windowWidth:794,windowHeight:1123,width:794,height:page.scrollHeight,scrollX:0,scrollY:0}).then(function(canvas){
+        var n=String(i+1).padStart(2,'0');
+        var fname=pages.length>1?'Oferta_Relampago_ALISTA_AHORRO_Hoja_'+n+'.png':'Oferta_Relampago_ALISTA_AHORRO.png';
+        descargarDataUrl(canvas.toDataURL('image/png'),fname);
+        return new Promise(function(resolve){setTimeout(resolve,350);});
+      });
+    }
+    var p=Promise.resolve();
+    pages.forEach(function(_,i){p=p.then(function(){return renderPage(i);});});
+    p.then(function(){cleanup();flash('ok',pages.length>1?'Imágenes generadas por hoja A4.':'Imagen generada.');})
+      .catch(function(e){cleanup();flash('err','No se pudo generar imagen: '+e.message);});
+  }
+
+  function ofertaCard(o){
+    var vig=ofertaVigente(o,hoy);
+    return E('div',{key:o.id,className:'offer-card '+(vig?'':'off')},
+      isAdminOrCo&&E('label',{className:'offer-select'},
+        E('input',{type:'checkbox',checked:selectedIds.indexOf(o.id)>=0,onChange:function(){toggleSelect(o.id);}}),' Usar en flyer seleccionado'
+      ),
+      o.fotoUrl&&E('img',{className:'offer-thumb',src:o.fotoUrl,alt:o.descripcion||'Oferta'}),
+      E('div',{className:'offer-top'},
+        E('div',null,
+          E('div',{className:'offer-title'},o.descripcion||'Artículo sin descripción'),
+          E('div',{className:'offer-code'},'Código: '+(o.cod||'—')+(o.codArt?' · '+o.codArt:''))
+        ),
+        E('span',{className:'pill '+(vig?'ok':'bad')},vig?'vigente':'no vigente')
+      ),
+      E('div',{className:'offer-prices'},
+        o.mostrarPrecioAnterior!==false&&E('div',null,E('small',null,'Precio anterior'),E('del',null,'$'+$(o.precioRegular))),
+        E('div',null,E('small',null,'Oferta Relámpago'),E('strong',null,'$'+$(o.precioOferta)))
+      ),
+      E('div',{className:'offer-meta'},
+        o.mostrarVigencia!==false&&E('span',null,'Desde: '+(o.fechaDesde||'—')),
+        o.mostrarVigencia!==false&&E('span',null,'Hasta: '+(o.fechaHasta||'sin fecha'))
+      ),
+      o.stockInfo&&E('div',{className:'offer-note'},'Stock / condición: '+o.stockInfo),
+      o.observacion&&E('div',{className:'offer-note'},'Obs.: '+o.observacion),
+      isAdminOrCo&&E('div',{className:'brow',style:{marginTop:10}},
+        E('button',{className:'btn sm pri',onClick:function(){editarOferta(o);}},'✏️ Editar'),
+        E('button',{className:'btn sm '+(o.activo===false?'ok':'warn'),onClick:function(){cambiarEstado(o,o.activo===false);}},o.activo===false?'Reactivar':'Desactivar'),
+        E('button',{className:'btn sm dan',onClick:function(){borrar(o);}},'Eliminar')
+      )
+    );
+  }
+  function flyerItem(o,big){
+    return E('div',{className:big?'flyer-product featured':'flyer-product'},
+      E('div',{className:'flyer-img-wrap'},o.fotoUrl?E('img',{src:o.fotoUrl,alt:o.descripcion||'Oferta'}):E('div',{className:'flyer-no-img'},'SIN FOTO')),
+      E('div',{className:'flyer-prod-name'},o.descripcion||'Producto'),
+      E('div',{className:'flyer-code'},'Código: '+(o.cod||'—')),
+      o.mostrarPrecioAnterior!==false&&o.precioRegular>0&&E('div',{className:'flyer-prev'},'Antes $'+$(o.precioRegular)),
+      E('div',{className:'flyer-price'},'$'+$(o.precioOferta)),
+      o.mostrarVigencia!==false&&E('div',{className:'flyer-valid'},o.fechaHasta?'Válido hasta '+o.fechaHasta:'Oferta vigente')
+    );
+  }
+  function flyerHeader(){return E('div',{className:'flyer-header'},
+    E('img',{src:'assets/img/logo-alista-ahorro.png',alt:'ALISTA AHORRO'}),
+    E('div',{className:'flyer-title-wrap'},
+      E('div',{className:'flyer-title'},'OFERTA RELÁMPAGO'),
+      E('div',{className:'flyer-sub'},'Precios especiales por tiempo limitado')
+    )
+  );}
+  function flyerFooter(){return E('div',{className:'flyer-footer'},
+    E('span',null,'WhatsApp: '+BIZ.wa),
+    E('span',null,'Instagram: '+BIZ.instagram),
+    E('span',null,BIZ.dir)
+  );}
+  function flyerPreview(){
+    if(!flyerOfertas.length)return E('div',{className:'empty'},'No hay ofertas relámpago vigentes para armar el flyer.');
+    if(flyerMode==='destacado')return E('div',{className:'flyer-a4 flyer-single'},flyerHeader(),E('div',{className:'flyer-single-body'},flyerItem(flyerOfertas[0],true)),flyerFooter());
+    return E('div',null,chunks(flyerOfertas,8).map(function(page,idx){return E('div',{key:idx,className:'flyer-a4'},
+      flyerHeader(),
+      E('div',{className:'flyer-grid-8'},page.map(function(o){return flyerItem(o,false);})),
+      flyerFooter()
+    );}));
+  }
+
+  return E('div',null,
+    msg&&E(Alert,{t:msg.t,msg:msg.m,onClose:function(){setMsg(null);}}),
+    isAdminOrCo&&E('div',{className:'card'},
+      E('div',{className:'card-hd'},
+        E('div',{className:'card-title'},editId?'✏️ Editar oferta relámpago':'🔥 Crear oferta relámpago para preventistas'),
+        E('button',{className:'btn',onClick:cargar},'🔄 Actualizar')
+      ),
+      E('div',{className:'alert warn'},E('span',null,'El precio de oferta se aplica automáticamente cuando el preventista carga el producto en un pedido.')),
+      E('div',{className:'fg'},E('label',null,'Buscar artículo'),
+        E('input',{className:'fi',value:q,onChange:function(e){setQ(e.target.value);},placeholder:'Código o descripción…'})
+      ),
+      q&&E('div',{className:'offer-search-list'},buscados.length?buscados.map(function(a){return E('button',{key:a.id,className:'offer-search-item '+(sel&&sel.id===a.id?'on':''),onClick:function(){elegirArticulo(a);}},
+        E('span',null,a.desc),E('small',null,(a.cod||'')+' · Público $'+$(a.precio)+' · Costo $'+$(a.costo))
+      );}):E('div',{className:'empty',style:{padding:10}},'No hay coincidencias.')),
+      sel&&E('div',{className:'alert ok'},E('span',null,'Seleccionado: '+sel.desc+' · Código '+(sel.cod||'—')+' · Precio actual $'+$(sel.precio))),
+      E('div',{className:'grid2'},
+        E('div',{className:'fg'},E('label',null,'Precio oferta relámpago $'),E('input',{className:'fi',type:'number',min:0,value:form.precioOferta,onChange:function(e){set('precioOferta',e.target.value);}})),
+        E('div',{className:'fg'},E('label',null,'Precio anterior opcional $'),E('input',{className:'fi',type:'number',min:0,value:form.precioAnterior,onChange:function(e){set('precioAnterior',e.target.value);}})),
+        E('div',{className:'fg'},E('label',null,'Desde'),E('input',{className:'fi',type:'date',value:form.fechaDesde,onChange:function(e){set('fechaDesde',e.target.value);}})),
+        E('div',{className:'fg'},E('label',null,'Hasta opcional'),E('input',{className:'fi',type:'date',value:form.fechaHasta,onChange:function(e){set('fechaHasta',e.target.value);}})),
+        E('div',{className:'fg'},E('label',null,'Stock / condición opcional'),E('input',{className:'fi',value:form.stockInfo,onChange:function(e){set('stockInfo',e.target.value);},placeholder:'Ej: hasta agotar stock, mínimo 2 bultos…'})),
+        E('div',{className:'fg'},E('label',null,'Orden en flyer'),E('input',{className:'fi',type:'number',value:form.ordenFlyer,onChange:function(e){set('ordenFlyer',e.target.value);}}))
+      ),
+      E('div',{className:'grid2'},
+        E('label',{className:'checkline'},E('input',{type:'checkbox',checked:form.mostrarPrecioAnterior!==false,onChange:function(e){set('mostrarPrecioAnterior',e.target.checked);}}),' Mostrar precio anterior'),
+        E('label',{className:'checkline'},E('input',{type:'checkbox',checked:form.mostrarVigencia!==false,onChange:function(e){set('mostrarVigencia',e.target.checked);}}),' Mostrar vigencia'),
+        E('label',{className:'checkline'},E('input',{type:'checkbox',checked:form.mostrarFlyer!==false,onChange:function(e){set('mostrarFlyer',e.target.checked);}}),' Incluir en flyer')
+      ),
+      E('div',{className:'fg'},E('label',null,'Foto de la oferta opcional'),E('input',{className:'fi',type:'file',accept:'image/*',onChange:onFoto}),form.fotoUrl&&E('div',{className:'photo-preview'},E('img',{src:form.fotoUrl,alt:'Foto oferta'}),E('button',{className:'btn sm',onClick:function(){set('fotoUrl','');}},'Quitar foto'))),
+      E('div',{className:'fg'},E('label',null,'Observación opcional'),E('textarea',{className:'fi',rows:2,value:form.observacion,onChange:function(e){set('observacion',e.target.value);},placeholder:'Ej: ideal para ofrecer a clientes con alta rotación…'})),
+      E('div',{className:'brow'},
+        E('button',{className:'btn pri',onClick:guardar},editId?'💾 Actualizar oferta':'💾 Guardar oferta relámpago'),
+        editId&&E('button',{className:'btn',onClick:cancelarEdicion},'Cancelar edición')
+      )
+    ),
+    E('div',{className:'card'},
+      E('div',{className:'card-hd'},
+        E('div',{className:'card-title'},isAdminOrCo?'📋 Ofertas relámpago cargadas':'🔥 Ofertas relámpago disponibles para vender'),
+        E('button',{className:'btn',onClick:cargar},'🔄 Actualizar')
+      ),
+      !isAdminOrCo&&E('div',{className:'alert ok'},E('span',null,'Estas ofertas relámpago aplican automáticamente en el pedido si cargás el producto correspondiente.')),
+      E('div',{className:'offer-grid'},visibles.length?visibles.map(ofertaCard):E('div',{className:'empty'},isAdminOrCo?'Todavía no hay ofertas relámpago cargadas.':'No hay ofertas relámpago vigentes por ahora.'))
+    ),
+    E('div',{className:'card flyer-builder'},
+      E('div',{className:'card-hd'},
+        E('div',{className:'card-title'},'🧾 Catálogo / Flyer de Oferta Relámpago'),
+        E('div',{className:'brow'},E('button',{className:'btn',onClick:printFlyer},'🖨️ Imprimir'),E('button',{className:'btn ok',onClick:exportFlyerImg},'🖼️ Sacar imagen'))
+      ),
+      isAdminOrCo&&E('div',{className:'brow flyer-tools'},
+        E('button',{className:'btn '+(flyerMode==='catalogo'?'pri':''),onClick:function(){setFlyerMode('catalogo');}},'8 por página'),
+        E('button',{className:'btn '+(flyerMode==='seleccion'?'pri':''),onClick:function(){setFlyerMode('seleccion');}},'Solo elegidas'),
+        E('button',{className:'btn '+(flyerMode==='destacado'?'pri':''),onClick:function(){setFlyerMode('destacado');}},'Destacar 1')
+      ),
+      E('div',{className:'alert warn'},E('span',null,'Para flyer seleccionado o destacado, marcá las ofertas con el tilde "Usar en flyer seleccionado".')),
+      E('div',{className:'alert ok'},E('span',null,'En celular la vista previa se adapta para leerse mejor. Al exportar imagen o imprimir, siempre sale en formato A4.')),
+      E('div',{className:'flyer-preview-wrap',ref:flyerRef},flyerPreview())
+    )
+  );
+}
+
+
 function ObjetivoBar(props){
   var obj=parseFloat(props.obj)||0,act=parseFloat(props.act)||0,pct=pctCumplido(act,obj);
   var done=obj>0&&act>=obj;
