@@ -1,0 +1,1 @@
+V35: arregla flyer en celular, agrega Clientes/GPS al menú móvil admin y sincroniza puntos GPS a Supabase para control desde el panel administrador.

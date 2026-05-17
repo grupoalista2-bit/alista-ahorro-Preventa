@@ -1,0 +1,6 @@
+V49 - Corrección pantalla blanca
+
+- Restaura funciones faltantes que rompían la carga inicial.
+- Mantiene V44, V45, V46, V47 y V48 combinadas.
+- Incluye comisiones, estadísticas, auditoría entre fechas, preparación final corregida, unidades vendidas, pesables y jornada/caja.
+- No requiere SQL nuevo adicional si ya ejecutaste V44 a V47.

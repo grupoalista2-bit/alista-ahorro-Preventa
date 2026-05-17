@@ -1,0 +1,1 @@
+V54: restaura la pantalla de Ofertas Relámpago como estaba antes: tarjetas en grilla, selector de ofertas, flyer A4 visible con modos 8 por página, Solo elegidas y Destacar 1, manteniendo las correcciones de V53.
