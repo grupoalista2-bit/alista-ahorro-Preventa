@@ -5264,10 +5264,10 @@ function BottomNav(props){
 
   if(isPrev) return E('div',{className:'bottom-nav'},
     item('dashboard','📊','Inicio'),
-    item('nuevo-pedido','🛒','Pedido'),
-    item('ofertas','🔥','Ofertas Relámpago'),
-    item('mis-pedidos','📦','Mis Pedidos',readyCount),
     item('jornada-caja','🧾','Jornada'),
+    item('nuevo-pedido','🛒','Pedido'),
+    item('mis-pedidos','📦','Mis Pedidos',readyCount),
+    item('ofertas','🔥','Ofertas'),
     item('clientes','👥','Clientes'),
     item('cuentas-corrientes','💳','CC'),
     item('mapa-gps','🗺️','GPS')

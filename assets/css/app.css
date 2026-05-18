@@ -719,3 +719,11 @@ html,body,#root,.app,.main,.page{
   .bottom-nav{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;justify-content:flex-start}
   .bottom-nav .bn-item{min-width:72px;flex:0 0 72px}
 }
+
+
+/* V60: Jornada visible primero en mobile */
+@media (max-width: 760px){
+  .bottom-nav{overflow-x:auto!important;justify-content:flex-start!important;gap:4px!important;padding-left:6px!important;padding-right:6px!important;}
+  .bottom-nav .bn-item{min-width:62px!important;flex:0 0 62px!important;font-size:10px!important;}
+  .bottom-nav .bn-icon{font-size:18px!important;}
+}

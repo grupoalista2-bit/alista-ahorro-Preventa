@@ -1,0 +1,5 @@
+V60 - Jornada visible en teléfono
+
+- Reordena el menú inferior del preventista para que Jornada aparezca al principio.
+- Reduce ancho de botones mobile para que se vea Jornada sin tener que deslizar.
+- No requiere SQL nuevo.
