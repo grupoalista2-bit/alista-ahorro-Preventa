@@ -1,0 +1,8 @@
+V47 - Jornada / Caja por turno
+
+- Agrega módulo Jornada / Caja para preventistas.
+- El preventista debe iniciar jornada antes de cargar/facturar pedidos.
+- Al cerrar jornada calcula resumen del turno: pedidos, efectivo, transferencias, cuenta corriente enviada y cobros registrados.
+- Muestra detalle de clientes en efectivo, transferencias, cuenta corriente y cobros.
+- Admin puede ver historial de jornadas/cierres y exportar Excel.
+- Agrega columna turno_id a pedidos para vincular operaciones con el turno.

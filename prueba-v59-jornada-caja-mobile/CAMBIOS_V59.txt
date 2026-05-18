@@ -1,0 +1,1 @@
+V59 - Jornada / Caja visible en menú inferior móvil para preventista. No requiere SQL nuevo.
