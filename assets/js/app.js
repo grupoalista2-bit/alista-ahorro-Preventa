@@ -1186,7 +1186,10 @@ function turnoToDb(t){
     id:t.id,usuario_id:t.usuarioId||t.usuario_id,usuario_nombre:t.usuarioNombre||t.usuario_nombre||'',
     fecha_inicio:t.fechaInicio||t.fecha_inicio,fecha_cierre:t.fechaCierre||t.fecha_cierre||null,
     estado:t.estado||'abierto',gps_inicio:t.gpsInicio||t.gps_inicio||null,gps_cierre:t.gpsCierre||t.gps_cierre||null,
-    resumen:t.resumen||{},observaciones:t.observaciones||''
+    resumen:t.resumen||{},observaciones:t.observaciones||'',
+    cerrado_por_id:t.cerradoPorId||t.cerrado_por_id||null,
+    cerrado_por_nombre:t.cerradoPorNombre||t.cerrado_por_nombre||null,
+    cerrado_por_rol:t.cerradoPorRol||t.cerrado_por_rol||null
   };
   // No enviar created_at/updated_at en null: Supabase debe completar defaults.
   if(t.created_at)o.created_at=t.created_at;
@@ -1195,13 +1198,20 @@ function turnoToDb(t){
 }
 function dbToTurno(r){return {
   id:r.id,usuarioId:r.usuario_id,usuarioNombre:r.usuario_nombre||'',fechaInicio:r.fecha_inicio,fechaCierre:r.fecha_cierre,
-  estado:r.estado||'abierto',gpsInicio:r.gps_inicio||null,gpsCierre:r.gps_cierre||null,resumen:r.resumen||{},observaciones:r.observaciones||''
+  estado:r.estado||'abierto',gpsInicio:r.gps_inicio||null,gpsCierre:r.gps_cierre||null,resumen:r.resumen||{},observaciones:r.observaciones||'',
+  cerradoPorId:r.cerrado_por_id||null,cerradoPorNombre:r.cerrado_por_nombre||'',cerradoPorRol:r.cerrado_por_rol||''
 };}
 function turnoActivoLocal(userId){return gl('turno_activo_'+userId,null);}
 function setTurnoActivoLocal(userId,t){if(t)sl('turno_activo_'+userId,t);else localStorage.removeItem('turno_activo_'+userId);}
 function getTurnoActivo(user){
   return dbGetSelect('turnos_jornada','*',{filter:'usuario_id=eq.'+encodeURIComponent(user.id)+'&estado=eq.abierto',order:'fecha_inicio.desc',limit:1})
-    .then(function(rows){var t=rows&&rows[0]?dbToTurno(rows[0]):turnoActivoLocal(user.id);if(t&&t.estado==='abierto')setTurnoActivoLocal(user.id,t);return t;})
+    .then(function(rows){
+      var t=rows&&rows[0]?dbToTurno(rows[0]):null;
+      if(t&&t.estado==='abierto'){setTurnoActivoLocal(user.id,t);return t;}
+      // Si Supabase respondió y no hay jornada abierta, limpiar cualquier jornada local vieja.
+      setTurnoActivoLocal(user.id,null);
+      return null;
+    })
     .catch(function(){return turnoActivoLocal(user.id);});
 }
 function resumenTurnoDesdeDatos(turno,pedidos,movs){
@@ -2195,6 +2205,7 @@ function Sidebar(props){
       isPrev&&nav('ofertas','🔥','Ofertas Relámpago'),
       isPrev&&nav('mis-pedidos','📦','Mis Pedidos',preparadoCount),
       isPrev&&nav('jornada-caja','🧾','Jornada / Caja'),
+      isPrep&&nav('jornada-caja','🧾','Cierre Caja'),
       isPrev&&nav('mapa-gps','🗺️','Mi Recorrido GPS'),
       isPrev&&nav('clientes','👥','Clientes'),
       isPrev&&nav('cuentas-corrientes','💳','Cuentas Corrientes'),
@@ -2532,7 +2543,15 @@ function NuevoPedido(props){
   function flash(t,m){setMsg({t:t,m:m});setTimeout(function(){setMsg(null);},4000);}
 
   function handleEnviar(){
-    if(user.role==='preventista'&&!jornadaActiva){flash('err','Primero tenés que iniciar jornada/caja. No se puede facturar sin jornada abierta.');return;}
+    // V56: si la jornada se inició en otra pantalla y el estado React no se refrescó todavía,
+    // validar también contra la jornada local guardada. Esto evita que el preventista quede bloqueado
+    // después de tocar "Iniciar jornada".
+    var jornadaParaPedido=jornadaActiva;
+    if(user.role==='preventista'&&!jornadaParaPedido){
+      var localJ=turnoActivoLocal(user.id);
+      if(localJ&&localJ.estado==='abierto'){jornadaParaPedido=localJ;setJornadaActiva(localJ);}
+    }
+    if(user.role==='preventista'&&!jornadaParaPedido){flash('err','Primero tenés que iniciar jornada/caja. No se puede facturar sin jornada abierta.');return;}
     if(!cli){flash('err','Seleccioná un cliente.');return;}
     if(items.length===0){flash('err','Agregá al menos un artículo.');return;}
     flash('ok','Enviando pedido…');
@@ -2542,7 +2561,7 @@ function NuevoPedido(props){
       var ped={
         id:uid(),nPedido:n,fecha:nowStr(),
         estado:'pendiente',
-        turnoId:jornadaActiva&&jornadaActiva.id||null,
+        turnoId:jornadaParaPedido&&jornadaParaPedido.id||null,
         preventistaId:user.id,preventistaNombre:user.nombre||user.username,
         cliente:{id:cli.id,nombre:cli.nombre,apellido:cli.apellido,
           nombreFantasia:cli.nombreFantasia||'',dir:cli.dir,tel:cli.tel},
@@ -2841,11 +2860,13 @@ function MisPedidos(props){
 
 
 /* ═══════════════════════════
-   JORNADA / CAJA (Preventista)
+   JORNADA / CAJA (Preventista inicia / Preparador cierra)
 ═══════════════════════════ */
 function JornadaCaja(props){
   var user=props.user;
   var isAdmin=user.role==='admin'||user.role==='coadmin';
+  var isPrep=user.role==='preparador';
+  var isPrev=user.role==='preventista';
   var _t=useState(null),turno=_t[0],setTurno=_t[1];
   var _ts=useState([]),turnos=_ts[0],setTurnos=_ts[1];
   var _p=useState([]),pedidos=_p[0],setPedidos=_p[1];
@@ -2855,9 +2876,11 @@ function JornadaCaja(props){
 
   function flash(t,m){setMsg({t:t,m:m});setTimeout(function(){setMsg(null);},5000);}
   function reload(){
-    Promise.all([getTurnoActivo(user),dbGet('turnos_jornada'),dbGet('pedidos'),dbGet('movimientos_cc')]).then(function(r){
-      setTurno(r[0]);setTurnos((r[1]||[]).map(dbToTurno).sort(function(a,b){return String(b.fechaInicio).localeCompare(String(a.fechaInicio));}));setPedidos((r[2]||[]).map(dbToPed));setMovs(r[3]||[]);
-    }).catch(function(){flash('err','No se pudo cargar jornada. Ejecutá el SQL V47 si todavía no lo hiciste.');});
+    var activoPromise=isPrev?getTurnoActivo(user):Promise.resolve(null);
+    Promise.all([activoPromise,dbGet('turnos_jornada'),dbGet('pedidos'),dbGet('movimientos_cc')]).then(function(r){
+      var lista=(r[1]||[]).map(dbToTurno).sort(function(a,b){return String(b.fechaInicio).localeCompare(String(a.fechaInicio));});
+      setTurno(isPrev?r[0]:null);setTurnos(lista);setPedidos((r[2]||[]).map(dbToPed));setMovs(r[3]||[]);
+    }).catch(function(){flash('err','No se pudo cargar jornada. Ejecutá el SQL V57 si todavía no lo hiciste.');});
   }
   useEffect(function(){reload();},[]);
 
@@ -2866,31 +2889,64 @@ function JornadaCaja(props){
       if(t){setTurno(t);flash('warn','Ya tenés una jornada abierta. Cerrala antes de abrir otra.');return;}
       var nuevo={id:uid(),usuarioId:user.id,usuarioNombre:user.nombre||user.username,fechaInicio:nowStr(),estado:'abierto',gpsInicio:gl('gps_last_'+user.id,null),resumen:{},observaciones:''};
       setTurnoActivoLocal(user.id,nuevo);
-      dbUpsert('turnos_jornada',turnoToDb(nuevo)).then(function(){auditRecord(user,'jornada','Inicio de jornada',{resultado:'abierta'});setTurno(nuevo);reload();flash('ok','Jornada iniciada. Ya podés tomar pedidos/facturar.');})
-        .catch(function(e){flash('err','No se pudo iniciar jornada: '+e.message);});
+      // Guardar primero en el teléfono para que el preventista pueda avanzar aunque la pantalla no refresque al instante.
+      setTurnoActivoLocal(user.id,nuevo);
+      setTurno(nuevo);
+      flash('ok','Jornada iniciada. Ya podés tomar pedidos/facturar.');
+      dbUpsert('turnos_jornada',turnoToDb(nuevo)).then(function(){auditRecord(user,'jornada','Inicio de jornada',{resultado:'abierta'});reload();})
+        .catch(function(e){flash('err','Jornada iniciada en el teléfono, pero no sincronizó con Supabase: '+e.message);});
     });
   }
-  function cerrar(){
-    if(!turno){flash('err','No tenés jornada abierta.');return;}
-    var cerrado=Object.assign({},turno,{fechaCierre:nowStr(),estado:'cerrado',gpsCierre:gl('gps_last_'+user.id,null),observaciones:obs||''});
+  function cerrarTurno(t){
+    if(!t){flash('err','No hay jornada abierta para cerrar.');return;}
+    var cerrado=Object.assign({},t,{
+      fechaCierre:nowStr(),estado:'cerrado',gpsCierre:gl('gps_last_'+user.id,null),
+      observaciones:obs||'',cerradoPorId:user.id,cerradoPorNombre:user.nombre||user.username,cerradoPorRol:user.role
+    });
     var resumen=resumenTurnoDesdeDatos(cerrado,pedidos,movs);
     cerrado.resumen=resumen;
-    dbUpdate('turnos_jornada',cerrado.id,turnoToDb(cerrado)).then(function(){setTurnoActivoLocal(user.id,null);auditRecord(user,'jornada','Cierre de jornada',{monto:resumen.totalGeneral,resultado:'cerrada',observaciones:'Pedidos '+resumen.pedidos+' · Total $'+$(resumen.totalGeneral)});setTurno(null);setObs('');reload();flash('ok','Jornada cerrada. Se guardó el resumen de caja/turno.');})
-      .catch(function(e){flash('err','No se pudo cerrar jornada: '+e.message);});
+    dbUpdate('turnos_jornada',cerrado.id,turnoToDb(cerrado)).then(function(){
+      if(t.usuarioId===user.id)setTurnoActivoLocal(user.id,null);
+      auditRecord(user,'jornada','Cierre de jornada por preparador',{monto:resumen.totalGeneral,resultado:'cerrada',observaciones:'Preventista '+(t.usuarioNombre||'')+' · Pedidos '+resumen.pedidos+' · Total caja $'+$(resumen.totalCaja)});
+      setTurno(null);setObs('');reload();flash('ok','Jornada cerrada. Se guardó el resumen de caja/turno.');
+    }).catch(function(e){flash('err','No se pudo cerrar jornada: '+e.message);});
   }
+  function cerrar(){cerrarTurno(turno);}
   function exportar(){
-    var rows=(isAdmin?turnos:turnos.filter(function(t){return t.usuarioId===user.id;})).map(function(t){var r=t.resumen||{};return {'Preventista':t.usuarioNombre,'Estado':t.estado,'Inicio':t.fechaInicio,'Cierre':t.fechaCierre||'','Pedidos':r.pedidos||0,'Vendido':r.totalVendido||0,'Efectivo pedidos':r.efectivo||0,'Transferencias pedidos':r.transferencia||0,'Cuenta corriente enviada':r.cuentaCorriente||0,'Cobros efectivo':r.cobrosEfectivo||0,'Cobros transferencia':r.cobrosTransferencia||0,'Total caja':r.totalCaja||0,'Total general':r.totalGeneral||0,'Obs':t.observaciones||''};});
+    var rows=((isAdmin||isPrep)?turnos:turnos.filter(function(t){return t.usuarioId===user.id;})).map(function(t){var r=t.resumen||{};return {'Preventista':t.usuarioNombre,'Estado':t.estado,'Inicio':t.fechaInicio,'Cierre':t.fechaCierre||'','Cerrado por':t.cerradoPorNombre||'','Pedidos':r.pedidos||0,'Vendido':r.totalVendido||0,'Efectivo pedidos':r.efectivo||0,'Transferencias pedidos':r.transferencia||0,'Cuenta corriente enviada':r.cuentaCorriente||0,'Cobros efectivo':r.cobrosEfectivo||0,'Cobros transferencia':r.cobrosTransferencia||0,'Total caja':r.totalCaja||0,'Total general':r.totalGeneral||0,'Obs':t.observaciones||''};});
     exportXLSX([{name:'Jornadas',rows:rows}],'jornadas_caja_alista.xlsx');
   }
   var resumenActual=turno?resumenTurnoDesdeDatos(turno,pedidos,movs):null;
-  var historial=(isAdmin?turnos:turnos.filter(function(t){return t.usuarioId===user.id;})).slice(0,20);
+  var turnosAbiertos=turnos.filter(function(t){return t.estado==='abierto';});
+  var historial=(isAdmin||isPrep?turnos:turnos.filter(function(t){return t.usuarioId===user.id;})).slice(0,20);
   function detalleLista(titulo,arr,campoExtra){return E('div',{className:'card',style:{marginTop:10}},E('div',{className:'card-title'},titulo),(!arr||!arr.length)?E('div',{className:'empty'},'Sin movimientos.'):E('div',{className:'tw'},E('table',null,E('thead',null,E('tr',null,E('th',null,'Fecha'),E('th',null,'Cliente'),E('th',null,'Pedido'),E('th',null,'Monto'),campoExtra&&E('th',null,campoExtra))),E('tbody',null,arr.map(function(x,i){return E('tr',{key:i},E('td',null,x.fecha||''),E('td',null,x.cliente||''),E('td',null,x.pedido?'#'+x.pedido:'—'),E('td',null,'$'+$(x.monto)),campoExtra&&E('td',null,x.datos||x.forma||x.referencia||''));})))));}
   return E('div',null,
     msg&&E(Alert,{t:msg.t,msg:msg.m,onClose:function(){setMsg(null);}}),
     E('div',{className:'card'},
-      E('div',{className:'card-hd'},E('div',{className:'card-title'},'🧾 Jornada / Caja por turno'),E('div',{className:'brow'},E('button',{className:'btn',onClick:reload},'🔄 Actualizar'),E('button',{className:'btn ok',onClick:exportar},'📊 Excel'))),
-      E('div',{className:'alert warn'},E('span',null,'El preventista debe iniciar jornada antes de tomar pedidos. Al cerrar, queda asentado efectivo, transferencias, cuenta corriente y cobros del turno.')),
-      turno?E('div',null,
+      E('div',{className:'card-hd'},E('div',{className:'card-title'},isPrep?'🧾 Cierre de Jornada / Caja':'🧾 Jornada / Caja por turno'),E('div',{className:'brow'},E('button',{className:'btn',onClick:reload},'🔄 Actualizar'),E('button',{className:'btn ok',onClick:exportar},'📊 Excel'))),
+      E('div',{className:'alert warn'},E('span',null,isPrep?'El preventista inicia jornada. El preparador cierra la jornada/caja y deja asentado el efectivo, transferencias, cuenta corriente y cobros del turno.':'El preventista debe iniciar jornada antes de tomar pedidos. El cierre lo realiza el preparador, dejando asentado efectivo, transferencias, cuenta corriente y cobros del turno.')),
+      isPrep&&E('div',null,
+        turnosAbiertos.length===0?E('div',{className:'empty'},'No hay jornadas abiertas para cerrar.'):
+        E('div',null,
+          E('div',{className:'card-title'},'Jornadas abiertas para cerrar'),
+          turnosAbiertos.map(function(t){var r=resumenTurnoDesdeDatos(t,pedidos,movs);return E('div',{className:'card soft',key:t.id,style:{marginTop:10}},
+            E('div',{className:'card-hd'},E('div',null,E('strong',null,t.usuarioNombre||'Preventista'),E('div',{style:{fontSize:12,color:'var(--txt2)'}},'Inicio: '+t.fechaInicio)),E('button',{className:'btn dan',onClick:function(){if(confirm('¿Cerrar jornada de '+(t.usuarioNombre||'preventista')+' y guardar resumen de caja?'))cerrarTurno(t);}},'🔒 Cerrar caja')),
+            E('div',{className:'kpis'},
+              E('div',{className:'kpi'},E('div',{className:'kpi-label'},'Pedidos'),E('div',{className:'kpi-val'},r.pedidos||0)),
+              E('div',{className:'kpi green'},E('div',{className:'kpi-label'},'Efectivo'),E('div',{className:'kpi-val'},'$'+$(r.efectivo))),
+              E('div',{className:'kpi'},E('div',{className:'kpi-label'},'Transferencias'),E('div',{className:'kpi-val'},'$'+$(r.transferencia))),
+              E('div',{className:'kpi orange'},E('div',{className:'kpi-label'},'Cta. corriente'),E('div',{className:'kpi-val'},'$'+$(r.cuentaCorriente))),
+              E('div',{className:'kpi purple'},E('div',{className:'kpi-label'},'Caja esperada'),E('div',{className:'kpi-val'},'$'+$(r.totalCaja)))
+            ),
+            detalleLista('💵 Efectivo por pedidos',r.efectivoDetalle),
+            detalleLista('🏦 Transferencias por pedidos',r.transferenciasDetalle,'Comprobante / datos'),
+            detalleLista('💳 Cuenta corriente enviada',r.ccDetalle),
+            detalleLista('🧾 Cobros recibidos',r.cobrosDetalle,'Forma / ref')
+          );})
+        ),
+        E('div',{className:'fg',style:{marginTop:10}},E('label',null,'Observaciones del cierre'),E('textarea',{className:'fi',rows:2,value:obs,onChange:function(e){setObs(e.target.value);},placeholder:'Ej: efectivo controlado, transferencia pendiente, diferencia, comprobante por WhatsApp…'}))
+      ),
+      !isPrep&&(turno?E('div',null,
         E('div',{className:'alert ok'},E('span',null,'Jornada abierta desde '+turno.fechaInicio)),
         resumenActual&&E('div',{className:'kpis'},
           E('div',{className:'kpi'},E('div',{className:'kpi-label'},'Pedidos turno'),E('div',{className:'kpi-val'},resumenActual.pedidos||0)),
@@ -2900,7 +2956,10 @@ function JornadaCaja(props){
           E('div',{className:'kpi purple'},E('div',{className:'kpi-label'},'Total caja esperado'),E('div',{className:'kpi-val'},'$'+$(resumenActual.totalCaja)))
         ),
         E('div',{className:'fg'},E('label',null,'Observaciones de cierre'),E('textarea',{className:'fi',rows:2,value:obs,onChange:function(e){setObs(e.target.value);},placeholder:'Ej: transferencia pendiente, diferencia de efectivo, comprobante enviado…'})),
-        E('button',{className:'btn dan lg',style:{width:'100%'},onClick:function(){if(confirm('¿Cerrar jornada y guardar resumen del turno?'))cerrar();}},'🔒 Cerrar jornada / caja'),
+        E('div',{className:'grid2'},
+          E('button',{className:'btn pri lg',style:{width:'100%'},onClick:function(){location.hash='nuevo';}},'🧾 Ir a Nuevo Pedido'),
+          E('button',{className:'btn dan lg',style:{width:'100%'},onClick:function(){if(confirm('¿Cerrar jornada y guardar resumen del turno?'))cerrar();}},'🔒 Cerrar jornada / caja')
+        ),
         resumenActual&&detalleLista('💵 Efectivo por pedidos',resumenActual.efectivoDetalle),
         resumenActual&&detalleLista('🏦 Transferencias por pedidos',resumenActual.transferenciasDetalle,'Comprobante / datos'),
         resumenActual&&detalleLista('💳 Cuenta corriente enviada en pedidos',resumenActual.ccDetalle),
@@ -2908,12 +2967,12 @@ function JornadaCaja(props){
       ):E('div',null,
         E('div',{className:'empty'},'No tenés jornada abierta.'),
         E('button',{className:'btn ok lg',style:{width:'100%'},onClick:iniciar},'▶️ Iniciar jornada')
-      )
+      ))
     ),
     E('div',{className:'card'},
-      E('div',{className:'card-title'},isAdmin?'Historial de jornadas':'Mis últimos cierres'),
+      E('div',{className:'card-title'},(isAdmin||isPrep)?'Historial de jornadas':'Mis últimos cierres'),
       historial.length===0?E('div',{className:'empty'},'Sin jornadas registradas.'):
-      E('div',{className:'tw'},E('table',null,E('thead',null,E('tr',null,E('th',null,'Preventista'),E('th',null,'Inicio'),E('th',null,'Cierre'),E('th',null,'Estado'),E('th',null,'Pedidos'),E('th',null,'Caja'),E('th',null,'Total'))),E('tbody',null,historial.map(function(t){var r=t.resumen||{};return E('tr',{key:t.id},E('td',null,t.usuarioNombre),E('td',null,t.fechaInicio),E('td',null,t.fechaCierre||'—'),E('td',null,E('span',{className:'st '+(t.estado==='abierto'?'pendiente':'finalizado')},t.estado)),E('td',null,r.pedidos||0),E('td',null,'$'+$(r.totalCaja||0)),E('td',null,'$'+$(r.totalGeneral||0)));}))))
+      E('div',{className:'tw'},E('table',null,E('thead',null,E('tr',null,E('th',null,'Preventista'),E('th',null,'Inicio'),E('th',null,'Cierre'),E('th',null,'Estado'),E('th',null,'Cerrado por'),E('th',null,'Pedidos'),E('th',null,'Caja'),E('th',null,'Total'))),E('tbody',null,historial.map(function(t){var r=t.resumen||{};return E('tr',{key:t.id},E('td',null,t.usuarioNombre),E('td',null,t.fechaInicio),E('td',null,t.fechaCierre||'—'),E('td',null,E('span',{className:'st '+(t.estado==='abierto'?'pendiente':'finalizado')},t.estado)),E('td',null,t.cerradoPorNombre||'—'),E('td',null,r.pedidos||0),E('td',null,'$'+$(r.totalCaja||0)),E('td',null,'$'+$(r.totalGeneral||0)));}))))
     )
   );
 }
@@ -5580,7 +5639,7 @@ function App(){
     if(mod==='dashboard')return E(Dashboard,{user:user});
     if(mod==='nuevo-pedido'&&(isPrev||isAdminOrCo))return E(NuevoPedido,{user:user});
     if(mod==='mis-pedidos'&&isPrev)return E(MisPedidos,{user:user});
-    if(mod==='jornada-caja'&&(isPrev||isAdminOrCo))return E(JornadaCaja,{user:user});
+    if(mod==='jornada-caja'&&(isPrev||isAdminOrCo||isPrep))return E(JornadaCaja,{user:user});
     if(mod==='mapa-gps'&&isPrev)return E(MapaGPS,{user:user});
     if(mod==='cola-prep'&&(isAdminOrCo||isPrep))return E(ColaPreparacion,{user:user});
     if(mod==='todos-pedidos'&&(isAdminOrCo||isPrep))return E(TodosPedidos,{user:user,setMod:goMod});
