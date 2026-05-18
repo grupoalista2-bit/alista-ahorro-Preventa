@@ -1,0 +1,1 @@
+V53: corrige pantalla blanca en Ofertas Relámpago. Reincorpora el componente de ofertas, flyer, alta/edición y manejo seguro de errores.

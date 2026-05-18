@@ -1,0 +1,11 @@
+V30 — Resumen de unidades vendidas para descontar stock
+
+- Agrega botón en Todos los Pedidos: "📦 Excel unidades vendidas".
+- Permite seleccionar rango Desde/Hasta para el reporte de stock.
+- Exporta Excel con tres hojas:
+  1) Para Zona de Precios: CODIGO_PROPIO, DESCRIPCION, UNIDADES_VENDIDAS.
+  2) Resumen: unidades, pedidos y monto por artículo.
+  3) Detalle pedidos: detalle por pedido y artículo.
+- Solo cuenta pedidos Entregados o Finalizados.
+- Descuenta devoluciones registradas al cerrar la venta.
+- No requiere SQL nuevo.

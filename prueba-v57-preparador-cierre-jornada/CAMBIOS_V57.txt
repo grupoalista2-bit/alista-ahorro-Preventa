@@ -1,0 +1,8 @@
+V57 - Preparador cierra jornada/caja
+
+- El preventista inicia jornada para poder facturar.
+- El preparador ve jornadas abiertas de preventistas.
+- El preparador cierra la jornada y guarda el resumen de caja.
+- El cierre muestra efectivo, transferencias, cuenta corriente enviada, cobros recibidos, detalle por cliente y total esperado.
+- Se guarda quién cerró la jornada: id, nombre y rol.
+- Se corrige que una jornada cerrada desde otro usuario no quede tomada como abierta por caché local.
