@@ -1,0 +1,5 @@
+V58 - Fix jornada preventista en teléfono
+- Corrige permisos RLS de turnos_jornada.
+- Permite iniciar jornada desde celular con usuario preventista autenticado.
+- No cambia la lógica: preventista inicia, preparador cierra.
+- No borra datos.

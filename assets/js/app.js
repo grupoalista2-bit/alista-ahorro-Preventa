@@ -5267,6 +5267,7 @@ function BottomNav(props){
     item('nuevo-pedido','🛒','Pedido'),
     item('ofertas','🔥','Ofertas Relámpago'),
     item('mis-pedidos','📦','Mis Pedidos',readyCount),
+    item('jornada-caja','🧾','Jornada'),
     item('clientes','👥','Clientes'),
     item('cuentas-corrientes','💳','CC'),
     item('mapa-gps','🗺️','GPS')
