@@ -1,0 +1,1 @@
+V55 - Ofertas Relámpago: se agrega botón Editar en tarjetas, carga datos en formulario superior y permite actualizar precio, foto, vigencia, stock, observación y opciones de flyer. No requiere SQL nuevo.

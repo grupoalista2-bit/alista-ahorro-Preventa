@@ -1,0 +1,7 @@
+V52 - Venta por kg solo para artículos pesables
+
+- Mantiene V50/V51 funcionando.
+- La opción Kg aparece solo si el artículo fue importado con PESABLE = SI.
+- Los artículos no pesables quedan bloqueados como unidad.
+- En preparación tampoco se puede cambiar a Kg si el artículo no es pesable.
+- No borra datos ni cambia pedidos anteriores.

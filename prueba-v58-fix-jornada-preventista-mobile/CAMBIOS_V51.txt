@@ -1,0 +1,6 @@
+V51 - Corrección facturación por kg
+- Refuerza importación de columna PESABLE/CPESABLE desde Excel.
+- Permite cambiar un artículo a venta por kg desde Nuevo Pedido.
+- Cantidades pesables aceptan decimales con 3 posiciones.
+- Preparación mantiene kg/decimales y permite corregir unidad/kg.
+- Unidades vendidas exporta Tipo KG/UNIDAD.

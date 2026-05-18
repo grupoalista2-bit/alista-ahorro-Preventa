@@ -1,0 +1,1 @@
+V56: corrige inicio de jornada para que el preventista pueda facturar luego de iniciar caja. Agrega validación local y botón Ir a Nuevo Pedido.
