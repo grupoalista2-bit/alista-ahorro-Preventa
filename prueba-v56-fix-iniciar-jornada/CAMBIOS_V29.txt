@@ -1,0 +1,16 @@
+ALISTA AHORRO V29 - Oferta Relámpago + Flyer A4
+
+Agregado:
+- Foto opcional en cada oferta relámpago.
+- Flyer / catálogo A4 de ofertas relámpago.
+- 8 productos por página.
+- Modo "solo elegidas" y modo "destacar 1".
+- Botón Imprimir.
+- Botón Sacar imagen PNG con html2canvas.
+- Precio de oferta se aplica automáticamente al cargar un artículo en Nuevo Pedido.
+- En el pedido se muestra etiqueta "Oferta Relámpago aplicada".
+- Datos de contacto del flyer: WhatsApp, Instagram y ubicación actual.
+- Logo tomado del manual de marca del usuario.
+
+SQL:
+- Ejecutar supabase/sql/alista_ahorro_v29_ofertas_flyer.sql
